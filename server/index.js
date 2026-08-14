@@ -6,6 +6,8 @@ const C = require("../shared/constants");
 const GameServer = require("./game");
 const LuaRuntime = require("./lua");
 const GameManager = require("./games");
+const { initDB, pool } = require("./db");
+const auth = require("./auth");
 
 const app = express();
 const server = http.createServer(app);
@@ -22,7 +24,7 @@ app.use(express.static(path.join(__dirname, "..", "public")));
 app.use("/shared", express.static(path.join(__dirname, "..", "shared")));
 
 app.get("/health", (req, res) => {
-  res.json({ status: "ok", players: game.players.size });
+  res.json({ status: "ok", players: game.players.size, db: auth.dbAvailable });
 });
 
 app.get("/", (req, res) => {
@@ -31,11 +33,67 @@ app.get("/", (req, res) => {
 
 const connectedSockets = new Map();
 
+async function startServer() {
+  try {
+    await initDB();
+    const testQuery = await pool.query("SELECT 1 as test").catch(() => null);
+    const dbOk = testQuery !== null;
+    auth.setDbAvailable(dbOk);
+    console.log(`[Server] Database: ${dbOk ? "CONNECTED" : "NOT AVAILABLE"}`);
+
+    await gameManager.initFromDB();
+    lua.setDbAvailable(dbOk);
+  } catch (err) {
+    console.error("[Server] Startup error:", err.message);
+    auth.setDbAvailable(false);
+  }
+
+  server.listen(PORT, () => {
+    console.log(`[Server] Mystic Sandbox running on port ${PORT}`);
+  });
+}
+
 io.on("connection", (socket) => {
   console.log(`[Server] Socket connected: ${socket.id}`);
 
-  socket.on(C.SOCKET_EVENTS.JOIN, (username) => {
+  let authenticatedUser = null;
+
+  socket.on(C.SOCKET_EVENTS.AUTH_REGISTER, async (data) => {
+    const result = await auth.register(data.username, data.password);
+    if (result.success) {
+      authenticatedUser = { userId: result.userId, username: result.username, token: result.token };
+    }
+    socket.emit(C.SOCKET_EVENTS.AUTH_RESULT, result);
+  });
+
+  socket.on(C.SOCKET_EVENTS.AUTH_LOGIN, async (data) => {
+    const result = await auth.login(data.username, data.password);
+    if (result.success) {
+      authenticatedUser = { userId: result.userId, username: result.username, token: result.token };
+    }
+    socket.emit(C.SOCKET_EVENTS.AUTH_RESULT, result);
+  });
+
+  socket.on(C.SOCKET_EVENTS.JOIN, (data) => {
     if (connectedSockets.has(socket.id)) return;
+
+    let username;
+    if (typeof data === "string") {
+      username = data;
+    } else if (data && data.token) {
+      const session = auth.verifySession(data.token);
+      if (!session) {
+        socket.emit(C.SOCKET_EVENTS.ERROR, "Invalid or expired session");
+        return;
+      }
+      username = session.username;
+    } else if (data && data.username) {
+      username = data.username;
+    } else {
+      socket.emit(C.SOCKET_EVENTS.ERROR, "Authentication required");
+      return;
+    }
+
     const cleanName = (username || "Player").substring(0, 16).replace(/[^a-zA-Z0-9_ -]/g, "");
     const player = game.addPlayer(socket, cleanName);
     connectedSockets.set(socket.id, player);
@@ -131,11 +189,11 @@ io.on("connection", (socket) => {
     socket.emit(C.SOCKET_EVENTS.GAME_LIST, gameManager.listGames());
   });
 
-  socket.on(C.SOCKET_EVENTS.GAME_CREATE, (data) => {
+  socket.on(C.SOCKET_EVENTS.GAME_CREATE, async (data) => {
     if (!data || !data.name) return;
     const player = game.getPlayer(socket.id);
     const createdBy = player ? player.username : "Unknown";
-    const newGame = gameManager.createGame(data.name, data.description, data.luaScript, createdBy);
+    const newGame = await gameManager.createGame(data.name, data.description, data.luaScript, createdBy);
     io.emit(C.SOCKET_EVENTS.GAME_LIST, gameManager.listGames());
     socket.emit(C.SOCKET_EVENTS.GAME_CREATE, { success: true, game: newGame });
   });
@@ -178,6 +236,9 @@ io.on("connection", (socket) => {
 
   socket.on("disconnect", () => {
     console.log(`[Server] Socket disconnected: ${socket.id}`);
+    if (authenticatedUser && authenticatedUser.token) {
+      auth.removeSession(authenticatedUser.token);
+    }
     const player = game.getPlayer(socket.id);
     connectedSockets.delete(socket.id);
     game.removePlayer(socket.id);
@@ -208,18 +269,22 @@ setInterval(() => {
   io.emit("player_positions", playerData);
 }, 50);
 
-server.listen(PORT, () => {
-  console.log(`[Server] Mystic Sandbox running on port ${PORT}`);
-});
+setInterval(() => {
+  auth.cleanExpiredSessions();
+}, 60 * 60 * 1000);
+
+startServer();
 
 process.on("SIGINT", () => {
   console.log("[Server] Shutting down...");
   game.cleanup();
+  pool.end();
   process.exit(0);
 });
 
 process.on("SIGTERM", () => {
   console.log("[Server] SIGTERM received, shutting down...");
   game.cleanup();
+  pool.end();
   process.exit(0);
 });

@@ -194,22 +194,15 @@ class Game {
   }
 
   setupLoginScreen() {
-    const playBtn = document.getElementById("play-btn");
-    const usernameInput = document.getElementById("username-input");
-    const errorEl = document.getElementById("login-error");
+    this.network.connect();
 
-    const tryJoin = () => {
-      const username = usernameInput.value.trim();
-      if (!username) {
-        errorEl.textContent = "Please enter a username";
-        return;
-      }
-      errorEl.textContent = "";
+    this.auth = new AuthManager();
+    this.auth.init(this.network.socket);
 
+    this.auth.onAuthSuccess = (data) => {
       document.getElementById("login-screen").style.display = "none";
       document.getElementById("game-container").style.display = "block";
 
-      this.network.connect();
       this.chat = new ChatManager(this.network.socket);
       this.luaEditor = new LuaEditor(this.network);
       this.gameBrowser = new GameBrowser(this.network);
@@ -219,20 +212,8 @@ class Game {
         this.startGame();
       };
 
-      this.network.socket.on("connect", () => {
-        this.network.join(username);
-      });
-
-      if (this.network.socket.connected) {
-        this.network.join(username);
-      }
+      this.network.joinWithToken(data.token);
     };
-
-    playBtn.addEventListener("click", tryJoin);
-    usernameInput.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") tryJoin();
-    });
-    usernameInput.focus();
   }
 
   startGame() {

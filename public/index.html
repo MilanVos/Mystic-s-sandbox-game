@@ -8,12 +8,32 @@
 </head>
 <body>
   <div id="login-screen">
+    <canvas id="bg-particles"></canvas>
     <div class="login-box">
-      <h1>Mystic Sandbox</h1>
+      <h1>MYSTIC <span class="neon-text">SANDBOX</span></h1>
       <p class="subtitle">Create, play, and script your own games with Lua</p>
-      <input type="text" id="username-input" placeholder="Enter your username..." maxlength="16" autocomplete="off" />
-      <button id="play-btn">Play</button>
+
+      <div class="auth-tabs">
+        <button id="tab-login" class="auth-tab active">Login</button>
+        <button id="tab-register" class="auth-tab">Register</button>
+      </div>
+
+      <div id="auth-login-panel" class="auth-panel">
+        <input type="text" id="login-username" placeholder="Username..." maxlength="16" autocomplete="off" />
+        <input type="password" id="login-password" placeholder="Password..." maxlength="64" autocomplete="off" />
+        <button id="login-btn" class="auth-btn">Login</button>
+      </div>
+
+      <div id="auth-register-panel" class="auth-panel" style="display:none;">
+        <input type="text" id="reg-username" placeholder="Choose a username..." maxlength="16" autocomplete="off" />
+        <input type="password" id="reg-password" placeholder="Choose a password..." maxlength="64" autocomplete="off" />
+        <input type="password" id="reg-password2" placeholder="Confirm password..." maxlength="64" autocomplete="off" />
+        <button id="register-btn" class="auth-btn">Create Account</button>
+      </div>
+
       <div id="login-error"></div>
+      <div id="login-info"></div>
+
       <div class="controls-hint">
         <h3>Controls</h3>
         <div><span class="key">A</span> <span class="key">D</span> Move &nbsp; <span class="key">W</span> / <span class="key">Space</span> Jump</div>
@@ -67,6 +87,7 @@
   <script src="/js/input.js"></script>
   <script src="/js/world.js"></script>
   <script src="/js/player.js"></script>
+  <script src="/js/auth.js"></script>
   <script src="/js/chat.js"></script>
   <script src="/js/lua-editor.js"></script>
   <script src="/js/game-browser.js"></script>

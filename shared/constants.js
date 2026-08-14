@@ -86,6 +86,9 @@
   const SOCKET_EVENTS = {
     JOIN: "join",
     JOIN_ACCEPTED: "join_accepted",
+    AUTH_REGISTER: "auth_register",
+    AUTH_LOGIN: "auth_login",
+    AUTH_RESULT: "auth_result",
     WORLD_DATA: "world_data",
     PLAYER_JOINED: "player_joined",
     PLAYER_LEFT: "player_left",

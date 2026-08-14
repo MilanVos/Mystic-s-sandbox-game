@@ -1,5 +1,6 @@
 const http = require("http");
 const { io } = require("socket.io-client");
+const C = require("./shared/constants");
 
 function httpGet(url) {
   return new Promise((resolve, reject) => {
@@ -11,12 +12,21 @@ function httpGet(url) {
   });
 }
 
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 async function runTests() {
   console.log("=== Integration Tests ===\n");
 
+  let dbAvailable = false;
+
   try {
     const health = await httpGet("http://localhost:3000/health");
+    const healthData = JSON.parse(health);
+    dbAvailable = healthData.db;
     console.log("[PASS] Health endpoint:", health);
+    console.log("[INFO] Database available:", dbAvailable);
   } catch (e) {
     console.log("[FAIL] Health endpoint:", e.message);
     process.exit(1);
@@ -25,14 +35,105 @@ async function runTests() {
   try {
     const css = await httpGet("http://localhost:3000/css/style.css");
     console.log("[PASS] CSS served (" + css.length + " bytes)");
-    const js = await httpGet("http://localhost:3000/js/game-browser.js");
-    console.log("[PASS] game-browser.js served (" + js.length + " bytes)");
+    const js = await httpGet("http://localhost:3000/js/auth.js");
+    console.log("[PASS] auth.js served (" + js.length + " bytes)");
     const html = await httpGet("http://localhost:3000/");
     console.log("[PASS] HTML served (" + html.length + " bytes)");
   } catch (e) {
     console.log("[FAIL] Static files:", e.message);
   }
 
+  if (dbAvailable) {
+    console.log("\n--- Testing Auth Flow ---");
+    await testAuthFlow();
+  } else {
+    console.log("\n[SKIP] Auth flow tests (no database available)");
+  }
+
+  console.log("\n--- Testing Game Flow ---");
+  await testGameFlow(dbAvailable);
+
+  console.log("\nAll tests completed.");
+  process.exit(0);
+}
+
+async function testAuthFlow() {
+  return new Promise((resolve) => {
+    const socket = io("http://localhost:3000", { transports: ["websocket"] });
+    const results = {};
+    let authToken = null;
+    let authState = "register";
+    let testUser = "testuser_" + Math.floor(Math.random() * 100000);
+    const testPass = "testpass123";
+
+    socket.on("connect", () => {
+      console.log("[PASS] Auth socket connected");
+      socket.emit(C.SOCKET_EVENTS.AUTH_REGISTER, { username: testUser, password: testPass });
+    });
+
+    socket.on(C.SOCKET_EVENTS.AUTH_RESULT, (data) => {
+      if (authState === "register") {
+        if (data.success) {
+          results.register = true;
+          authToken = data.token;
+          console.log("[PASS] Register success: user=" + data.username + " token=" + data.token.substring(0, 8) + "...");
+          authState = "login";
+          socket.emit(C.SOCKET_EVENTS.AUTH_LOGIN, { username: testUser, password: testPass });
+        } else {
+          console.log("[FAIL] Register failed:", data.error);
+          socket.disconnect();
+          resolve();
+        }
+      } else if (authState === "login") {
+        if (data.success) {
+          results.login = true;
+          authToken = data.token;
+          console.log("[PASS] Login success: user=" + data.username);
+          socket.emit(C.SOCKET_EVENTS.JOIN, { token: authToken });
+        } else {
+          console.log("[FAIL] Login failed:", data.error);
+          socket.disconnect();
+          resolve();
+        }
+      }
+    });
+
+    socket.on(C.SOCKET_EVENTS.JOIN_ACCEPTED, (data) => {
+      results.joinWithToken = true;
+      console.log("[PASS] Join with token accepted: user=" + data.username);
+      socket.emit(C.SOCKET_EVENTS.GAME_LIST);
+    });
+
+    socket.on(C.SOCKET_EVENTS.WORLD_DATA, (data) => {
+      results.worldData = true;
+      console.log("[PASS] World data received: " + data.width + "x" + data.height);
+    });
+
+    socket.on(C.SOCKET_EVENTS.GAME_LIST, (games) => {
+      results.gameList = true;
+      console.log("[PASS] Game list received: " + games.length + " games");
+    });
+
+    socket.on(C.SOCKET_EVENTS.ERROR, (msg) => {
+      console.log("[FAIL] Server error:", msg);
+    });
+
+    setTimeout(() => {
+      console.log("\n=== Auth Test Results ===");
+      const expected = ["register", "login", "joinWithToken", "worldData", "gameList"];
+      let pass = 0, fail = 0;
+      for (const key of expected) {
+        if (results[key]) { pass++; console.log("[PASS] " + key); }
+        else { fail++; console.log("[FAIL] " + key); }
+      }
+      console.log("Passed: " + pass + ", Failed: " + fail);
+      socket.disconnect();
+      resolve();
+    }, 3000);
+  });
+}
+
+async function testGameFlow(dbAvailable) {
   return new Promise((resolve) => {
     const socket = io("http://localhost:3000", { transports: ["websocket"] });
     let mySocketId = null;
@@ -140,7 +241,6 @@ async function runTests() {
         x: 100, y: 50, vx: 5, vy: 0,
         facing: 1, onGround: true,
       });
-      socket.emit("block_break", { x: 200, y: 40 });
 
       const luaTest = `
         print("Hello from Lua test!")
@@ -170,7 +270,7 @@ async function runTests() {
     }, 2500);
 
     setTimeout(() => {
-      console.log("\n=== Test Results ===");
+      console.log("\n=== Game Test Results ===");
 
       const expected = [
         "joinAccepted", "worldData", "gameList", "gameJoin",

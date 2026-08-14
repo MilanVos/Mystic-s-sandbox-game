@@ -1,8 +1,5 @@
-const fs = require("fs");
-const path = require("path");
 const crypto = require("crypto");
-
-const GAMES_FILE = path.join(__dirname, "..", "games.json");
+const { query } = require("./db");
 
 const DEFAULT_GAMES = [
   {
@@ -11,7 +8,7 @@ const DEFAULT_GAMES = [
     description: "Free build mode - no rules, just create!",
     luaScript: "",
     createdBy: "System",
-    createdAt: Date.now(),
+    isDefault: true,
   },
   {
     id: "survival",
@@ -29,7 +26,7 @@ game.onPlayerJoin(function(player)
 end)
 `,
     createdBy: "System",
-    createdAt: Date.now(),
+    isDefault: true,
   },
   {
     id: "ctf",
@@ -63,7 +60,7 @@ game.onChat(function(data)
 end)
 `,
     createdBy: "System",
-    createdAt: Date.now(),
+    isDefault: true,
   },
   {
     id: "buildbattle",
@@ -85,7 +82,7 @@ game.onPlayerJoin(function(player)
 end)
 `,
     createdBy: "System",
-    createdAt: Date.now(),
+    isDefault: true,
   },
 ];
 
@@ -93,36 +90,42 @@ class GameManager {
   constructor() {
     this.games = new Map();
     this.playerGames = new Map();
-    this.loadGames();
+    this.dbAvailable = false;
   }
 
-  loadGames() {
+  async initFromDB() {
     try {
-      if (fs.existsSync(GAMES_FILE)) {
-        const data = JSON.parse(fs.readFileSync(GAMES_FILE, "utf8"));
-        for (const g of data) {
-          this.games.set(g.id, g);
+      const result = await query("SELECT id, name, description, lua_script, created_by, created_at, is_default FROM games ORDER BY created_at ASC");
+      if (result.rows.length > 0) {
+        for (const row of result.rows) {
+          this.games.set(row.id, {
+            id: row.id,
+            name: row.name,
+            description: row.description,
+            luaScript: row.lua_script,
+            createdBy: row.created_by,
+            createdAt: row.created_at,
+            isDefault: row.is_default,
+          });
         }
+        console.log(`[Games] Loaded ${result.rows.length} games from database`);
       } else {
         for (const g of DEFAULT_GAMES) {
-          this.games.set(g.id, g);
+          await query(
+            "INSERT INTO games (id, name, description, lua_script, created_by, created_at, is_default) VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT DO NOTHING",
+            [g.id, g.name, g.description, g.luaScript, g.createdBy, Date.now(), true]
+          );
+          this.games.set(g.id, { ...g, createdAt: Date.now() });
         }
-        this.saveGames();
+        console.log("[Games] Inserted default games into database");
       }
-    } catch (e) {
-      console.error("[Games] Failed to load games:", e.message);
+      this.dbAvailable = true;
+    } catch (err) {
+      console.error("[Games] DB load failed, using in-memory defaults:", err.message);
       for (const g of DEFAULT_GAMES) {
-        this.games.set(g.id, g);
+        this.games.set(g.id, { ...g, createdAt: Date.now() });
       }
-    }
-  }
-
-  saveGames() {
-    try {
-      const arr = Array.from(this.games.values());
-      fs.writeFileSync(GAMES_FILE, JSON.stringify(arr, null, 2));
-    } catch (e) {
-      console.error("[Games] Failed to save games:", e.message);
+      this.dbAvailable = false;
     }
   }
 
@@ -153,19 +156,33 @@ class GameManager {
     return this.games.get(gameId);
   }
 
-  createGame(name, description, luaScript, createdBy) {
+  async createGame(name, description, luaScript, createdBy) {
     const id = crypto.randomBytes(8).toString("hex");
-    const game = {
+    const gameData = {
       id,
       name: name.substring(0, 50),
       description: (description || "").substring(0, 200),
       luaScript: (luaScript || "").substring(0, 50000),
-      createdBy: createdBy.substring(0, 16),
+      createdBy: (createdBy || "Unknown").substring(0, 16),
       createdAt: Date.now(),
+      isDefault: false,
     };
-    this.games.set(id, game);
-    this.saveGames();
-    return game;
+
+    this.games.set(id, gameData);
+
+    if (this.dbAvailable) {
+      try {
+        await query(
+          "INSERT INTO games (id, name, description, lua_script, created_by, created_at, is_default) VALUES ($1, $2, $3, $4, $5, $6, $7)",
+          [id, gameData.name, gameData.description, gameData.luaScript, gameData.createdBy, gameData.createdAt, false]
+        );
+        console.log(`[Games] Saved game '${gameData.name}' to database`);
+      } catch (err) {
+        console.error("[Games] Failed to save game to DB:", err.message);
+      }
+    }
+
+    return gameData;
   }
 
   joinGame(socketId, gameId) {
@@ -183,12 +200,17 @@ class GameManager {
     return this.games.get(gameId);
   }
 
-  removeGame(gameId) {
-    if (gameId === "sandbox" || gameId === "survival" || gameId === "ctf" || gameId === "buildbattle") {
-      return false;
-    }
+  async removeGame(gameId) {
+    const g = this.games.get(gameId);
+    if (g && g.isDefault) return false;
     this.games.delete(gameId);
-    this.saveGames();
+    if (this.dbAvailable) {
+      try {
+        await query("DELETE FROM games WHERE id = $1", [gameId]);
+      } catch (err) {
+        console.error("[Games] Failed to delete game from DB:", err.message);
+      }
+    }
     return true;
   }
 

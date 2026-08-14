@@ -1,16 +1,14 @@
 const fengari = require("fengari");
 const { lua, lauxlib, lualib } = fengari;
 const C = require("../shared/constants");
-const fs = require("fs");
-const path = require("path");
-
-const DATASTORE_FILE = path.join(__dirname, "..", "datastore.json");
+const { query } = require("./db");
 
 class LuaRuntime {
   constructor(gameServer, io) {
     this.game = gameServer;
     this.io = io;
     this.L = null;
+    this.dbAvailable = false;
     this.callbacks = {
       onPlayerJoin: [],
       onPlayerLeave: [],
@@ -23,27 +21,40 @@ class LuaRuntime {
     };
     this.output = [];
     this.remoteEvents = new Map();
-    this.dataStore = this.loadDataStore();
+    this.dataStore = {};
     this.uiCounter = 0;
     this.init();
   }
 
-  loadDataStore() {
-    try {
-      if (fs.existsSync(DATASTORE_FILE)) {
-        return JSON.parse(fs.readFileSync(DATASTORE_FILE, "utf8"));
-      }
-    } catch (e) {
-      console.error("[Lua] Failed to load datastore:", e.message);
-    }
-    return {};
+  setDbAvailable(available) {
+    this.dbAvailable = available;
   }
 
-  saveDataStore() {
+  async loadDataStoreEntry(key) {
+    if (!this.dbAvailable) return undefined;
     try {
-      fs.writeFileSync(DATASTORE_FILE, JSON.stringify(this.dataStore, null, 2));
+      const result = await query("SELECT value, value_type FROM datastore WHERE player_key = $1", [key]);
+      if (result.rows.length > 0) {
+        const row = result.rows[0];
+        if (row.value_type === "number") return parseFloat(row.value);
+        if (row.value_type === "boolean") return row.value === "true";
+        return row.value;
+      }
     } catch (e) {
-      console.error("[Lua] Failed to save datastore:", e.message);
+      console.error("[Lua] DataStore load error:", e.message);
+    }
+    return undefined;
+  }
+
+  async saveDataStoreEntry(key, value, type) {
+    if (!this.dbAvailable) return;
+    try {
+      await query(
+        "INSERT INTO datastore (player_key, value, value_type, updated_at) VALUES ($1, $2, $3, NOW()) ON CONFLICT (player_key) DO UPDATE SET value = $2, value_type = $3, updated_at = NOW()",
+        [key, String(value), type]
+      );
+    } catch (e) {
+      console.error("[Lua] DataStore save error:", e.message);
     }
   }
 
@@ -442,6 +453,11 @@ class LuaRuntime {
         }
       } else {
         lua.lua_pushnil(self.L);
+        if (self.dbAvailable) {
+          self.loadDataStoreEntry(storeKey).then(dbVal => {
+            if (dbVal !== undefined) self.dataStore[storeKey] = dbVal;
+          }).catch(() => {});
+        }
       }
       return 1;
     });
@@ -453,17 +469,23 @@ class LuaRuntime {
       const storeKey = playerId + ":" + key;
       const valType = lua.lua_type(self.L, 3);
       let val;
+      let typeStr = "string";
       if (valType === lua.LUA_TSTRING) {
         val = fengari.to_jsstring(lua.lua_tostring(self.L, 3));
+        typeStr = "string";
       } else if (valType === lua.LUA_TNUMBER) {
         val = lua.lua_tonumber(self.L, 3);
+        typeStr = "number";
       } else if (valType === lua.LUA_TBOOLEAN) {
         val = lua.lua_toboolean(self.L, 3) === 1;
+        typeStr = "boolean";
       } else {
         val = null;
       }
       self.dataStore[storeKey] = val;
-      self.saveDataStore();
+      if (self.dbAvailable && val !== null) {
+        self.saveDataStoreEntry(storeKey, val, typeStr).catch(() => {});
+      }
       return 0;
     });
     this.setGlobal("datastoreSet");

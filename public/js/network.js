@@ -154,6 +154,21 @@ class NetworkManager {
     this.socket.emit(Constants.SOCKET_EVENTS.JOIN, username);
   }
 
+  joinWithToken(token) {
+    if (!this.socket) return;
+    this.socket.emit(Constants.SOCKET_EVENTS.JOIN, { token });
+  }
+
+  register(username, password) {
+    if (!this.socket) return;
+    this.socket.emit(Constants.SOCKET_EVENTS.AUTH_REGISTER, { username, password });
+  }
+
+  login(username, password) {
+    if (!this.socket) return;
+    this.socket.emit(Constants.SOCKET_EVENTS.AUTH_LOGIN, { username, password });
+  }
+
   sendMove(data) {
     if (!this.socket || !this.connected) return;
     this.socket.emit(Constants.SOCKET_EVENTS.PLAYER_MOVE, data);
