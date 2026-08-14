@@ -10,10 +10,12 @@ class Game {
     this.network = new NetworkManager();
     this.inventory = new InventoryManager();
     this.chat = null;
+    this.luaEditor = null;
 
     this.localPlayer = null;
     this.remotePlayers = new Map();
     this.camera = { x: 0, y: 0 };
+    this.zoom = Constants.CAMERA_ZOOM;
     this.timeOfDay = 0.3;
     this.fps = 60;
     this.frameCount = 0;
@@ -52,6 +54,7 @@ class Game {
     };
 
     this.input.onToggleChat = (open) => {
+      if (!this.chat) return;
       if (open) {
         this.chat.open();
         this.input.setDisabled(true);
@@ -59,6 +62,24 @@ class Game {
         this.chat.close();
         this.input.setDisabled(false);
       }
+    };
+
+    this.input.onToggleLuaEditor = (open) => {
+      if (!this.luaEditor) return;
+      if (open) {
+        this.luaEditor.open();
+        this.input.setDisabled(true);
+      } else {
+        this.luaEditor.close();
+        this.input.setDisabled(false);
+      }
+    };
+
+    this.input.onToggleCreative = () => {
+      if (!this.localPlayer) return;
+      const isCreative = this.localPlayer.toggleCreative();
+      this.network.sendCreativeToggle(isCreative);
+      this.updateModeDisplay();
     };
   }
 
@@ -73,6 +94,7 @@ class Game {
       };
 
       this.localPlayer.onDamage = (damage) => {
+        if (this.localPlayer.creativeMode) return;
         this.network.sendDamage(damage);
         this.localPlayer.health -= damage;
         if (this.localPlayer.health <= 0) {
@@ -86,15 +108,11 @@ class Game {
       document.getElementById("player-list-panel").style.display = "block";
       this.gameStarted = true;
       this.input.setDisabled(false);
+      this.updateModeDisplay();
     };
 
     this.network.onWorldData = (data) => {
       this.world.loadFromData(data);
-      if (this.localPlayer) {
-        const spawn = this.world.getSpawnPoint();
-        this.localPlayer.x = spawn.x;
-        this.localPlayer.y = spawn.y;
-      }
     };
 
     this.network.onPlayerJoined = (data) => {
@@ -129,7 +147,7 @@ class Game {
     };
 
     this.network.onChatMessage = (data) => {
-      this.chat.addMessage(data);
+      if (this.chat) this.chat.addMessage(data);
     };
 
     this.network.onHealthUpdate = (data) => {
@@ -166,6 +184,10 @@ class Game {
       const errEl = document.getElementById("login-error");
       if (errEl) errEl.textContent = msg;
     };
+
+    this.network.onLuaResult = (data) => {
+      if (this.luaEditor) this.luaEditor.handleResult(data);
+    };
   }
 
   setupLoginScreen() {
@@ -186,6 +208,7 @@ class Game {
 
       this.network.connect();
       this.chat = new ChatManager(this.network.socket);
+      this.luaEditor = new LuaEditor(this.network);
 
       this.network.socket.on("connect", () => {
         this.network.join(username);
@@ -239,6 +262,18 @@ class Game {
     }
   }
 
+  updateModeDisplay() {
+    const modeEl = document.getElementById("mode-display");
+    if (!modeEl) return;
+    if (this.localPlayer && this.localPlayer.creativeMode) {
+      modeEl.textContent = "Creative";
+      modeEl.style.color = "#4ee4ec";
+    } else {
+      modeEl.textContent = "Survival";
+      modeEl.style.color = "#e74c3c";
+    }
+  }
+
   updatePlayerList(list) {
     const panel = document.getElementById("player-list-panel");
     panel.innerHTML = "";
@@ -260,13 +295,17 @@ class Game {
 
   updateCamera() {
     if (!this.localPlayer) return;
-    const targetX = this.localPlayer.x + Constants.PLAYER_WIDTH / 2 - this.canvas.width / 2;
-    const targetY = this.localPlayer.y + Constants.PLAYER_HEIGHT / 2 - this.canvas.height / 2;
-    this.camera.x += (targetX - this.camera.x) * 0.1;
-    this.camera.y += (targetY - this.camera.y) * 0.1;
+    const lookAhead = this.localPlayer.facing * Constants.CAMERA_LOOKAHEAD;
+    const viewW = this.canvas.width / this.zoom;
+    const viewH = this.canvas.height / this.zoom;
 
-    const maxCamX = this.world.width * Constants.TILE_SIZE - this.canvas.width;
-    const maxCamY = this.world.height * Constants.TILE_SIZE - this.canvas.height;
+    const targetX = this.localPlayer.x + Constants.PLAYER_WIDTH / 2 - viewW / 2 + lookAhead;
+    const targetY = this.localPlayer.y + Constants.PLAYER_HEIGHT / 2 - viewH / 2;
+    this.camera.x += (targetX - this.camera.x) * 0.08;
+    this.camera.y += (targetY - this.camera.y) * 0.08;
+
+    const maxCamX = this.world.width * Constants.TILE_SIZE - viewW;
+    const maxCamY = this.world.height * Constants.TILE_SIZE - viewH;
     this.camera.x = Math.max(0, Math.min(maxCamX, this.camera.x));
     this.camera.y = Math.max(0, Math.min(maxCamY, this.camera.y));
   }
@@ -412,6 +451,15 @@ class Game {
     const data = Constants.BLOCK_DATA[this.breakingTile.tileId];
     if (!data || !data.hardness) return;
 
+    if (this.localPlayer.creativeMode) {
+      this.network.sendBlockBreak(this.breakingTile.x, this.breakingTile.y);
+      this.world.setTile(this.breakingTile.x, this.breakingTile.y, Constants.BLOCK.AIR);
+      this.inventory.addItem(this.breakingTile.tileId, 1);
+      this.breakingTile = null;
+      this.breakingStartTime = 0;
+      return;
+    }
+
     const elapsed = Date.now() - this.breakingStartTime;
     const totalTime = data.hardness * 400;
     const progress = Math.min(1, elapsed / totalTime);
@@ -425,29 +473,29 @@ class Game {
       return;
     }
 
-    const screenX = Math.floor(this.breakingTile.x * Constants.TILE_SIZE - this.camera.x);
-    const screenY = Math.floor(this.breakingTile.y * Constants.TILE_SIZE - this.camera.y);
+    const screenX = Math.floor((this.breakingTile.x * Constants.TILE_SIZE - this.camera.x) * this.zoom);
+    const screenY = Math.floor((this.breakingTile.y * Constants.TILE_SIZE - this.camera.y) * this.zoom);
     const cracks = Math.floor(progress * 5);
 
     this.ctx.fillStyle = `rgba(0, 0, 0, ${0.1 + progress * 0.3})`;
-    this.ctx.fillRect(screenX, screenY, Constants.TILE_SIZE, Constants.TILE_SIZE);
+    this.ctx.fillRect(screenX, screenY, Constants.TILE_SIZE * this.zoom, Constants.TILE_SIZE * this.zoom);
 
     this.ctx.strokeStyle = "rgba(0, 0, 0, 0.5)";
     this.ctx.lineWidth = 1;
     for (let i = 0; i <= cracks; i++) {
       this.ctx.beginPath();
-      const cx = screenX + (i * 7 + 5);
-      const cy = screenY + (i * 11 + 3);
+      const cx = screenX + (i * 7 + 5) * this.zoom;
+      const cy = screenY + (i * 11 + 3) * this.zoom;
       this.ctx.moveTo(cx, cy);
-      this.ctx.lineTo(cx + 6, cy + 8);
+      this.ctx.lineTo(cx + 6 * this.zoom, cy + 8 * this.zoom);
       this.ctx.stroke();
     }
   }
 
   handleBlockInteraction() {
-    if (!this.localPlayer || this.isDead || this.input.chatOpen || this.input.craftingOpen) return;
+    if (!this.localPlayer || this.isDead || this.input.chatOpen || this.input.craftingOpen || this.input.luaEditorOpen) return;
 
-    this.input.updateMouseWorld(this.camera.x, this.camera.y);
+    this.input.updateMouseWorld(this.camera.x, this.camera.y, this.zoom);
     const mouseTile = this.input.getMouseTile();
 
     const playerTileX = Math.floor((this.localPlayer.x + Constants.PLAYER_WIDTH / 2) / Constants.TILE_SIZE);
@@ -455,7 +503,8 @@ class Game {
     const dist = Math.sqrt(
       (mouseTile.x - playerTileX) ** 2 + (mouseTile.y - playerTileY) ** 2
     );
-    if (dist > Constants.REACH_DISTANCE) {
+    const reach = this.localPlayer.creativeMode ? Constants.REACH_DISTANCE * 2 : Constants.REACH_DISTANCE;
+    if (dist > reach) {
       this.breakingTile = null;
       this.breakingStartTime = 0;
       return;
@@ -482,7 +531,7 @@ class Game {
 
     if (this.input.isRightDown()) {
       const now = Date.now();
-      if (now - this.lastPlaceSend > 200) {
+      if (now - this.lastPlaceSend > 150) {
         this.lastPlaceSend = now;
         const tileId = this.world.getTile(mouseTile.x, mouseTile.y);
         if (tileId === Constants.BLOCK.AIR) {
@@ -496,7 +545,7 @@ class Game {
           const pRight = this.localPlayer.x + Constants.PLAYER_WIDTH;
           const pBottom = this.localPlayer.y + Constants.PLAYER_HEIGHT;
 
-          if (data && data.solid) {
+          if (data && data.solid && !this.localPlayer.flying) {
             const overlap = !(
               pRight <= blockLeft ||
               this.localPlayer.x >= blockRight ||
@@ -514,9 +563,9 @@ class Game {
   }
 
   renderTargetHighlight() {
-    if (!this.localPlayer || this.input.chatOpen || this.input.craftingOpen) return;
+    if (!this.localPlayer || this.input.chatOpen || this.input.craftingOpen || this.input.luaEditorOpen) return;
 
-    this.input.updateMouseWorld(this.camera.x, this.camera.y);
+    this.input.updateMouseWorld(this.camera.x, this.camera.y, this.zoom);
     const mouseTile = this.input.getMouseTile();
 
     const playerTileX = Math.floor((this.localPlayer.x + Constants.PLAYER_WIDTH / 2) / Constants.TILE_SIZE);
@@ -524,14 +573,15 @@ class Game {
     const dist = Math.sqrt(
       (mouseTile.x - playerTileX) ** 2 + (mouseTile.y - playerTileY) ** 2
     );
+    const reach = this.localPlayer.creativeMode ? Constants.REACH_DISTANCE * 2 : Constants.REACH_DISTANCE;
 
-    const screenX = Math.floor(mouseTile.x * Constants.TILE_SIZE - this.camera.x);
-    const screenY = Math.floor(mouseTile.y * Constants.TILE_SIZE - this.camera.y);
+    const screenX = Math.floor((mouseTile.x * Constants.TILE_SIZE - this.camera.x) * this.zoom);
+    const screenY = Math.floor((mouseTile.y * Constants.TILE_SIZE - this.camera.y) * this.zoom);
 
-    if (dist <= Constants.REACH_DISTANCE) {
+    if (dist <= reach) {
       this.ctx.strokeStyle = "rgba(255, 255, 255, 0.4)";
       this.ctx.lineWidth = 2;
-      this.ctx.strokeRect(screenX, screenY, Constants.TILE_SIZE, Constants.TILE_SIZE);
+      this.ctx.strokeRect(screenX, screenY, Constants.TILE_SIZE * this.zoom, Constants.TILE_SIZE * this.zoom);
     }
   }
 
@@ -542,9 +592,9 @@ class Game {
     this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
 
     if (this.localPlayer && darkness > 0.1) {
-      const px = this.localPlayer.x - this.camera.x + Constants.PLAYER_WIDTH / 2;
-      const py = this.localPlayer.y - this.camera.y + Constants.PLAYER_HEIGHT / 2;
-      const radius = 120 + Math.sin(Date.now() * 0.005) * 10;
+      const px = (this.localPlayer.x - this.camera.x + Constants.PLAYER_WIDTH / 2) * this.zoom;
+      const py = (this.localPlayer.y - this.camera.y + Constants.PLAYER_HEIGHT / 2) * this.zoom;
+      const radius = (120 + Math.sin(Date.now() * 0.005) * 10) * this.zoom;
       const grad = this.ctx.createRadialGradient(px, py, 0, px, py, radius);
       grad.addColorStop(0, `rgba(0, 0, 15, 0)`);
       grad.addColorStop(1, `rgba(0, 0, 15, ${darkness})`);
@@ -560,18 +610,18 @@ class Game {
   renderTorchLighting(darkness) {
     if (darkness <= 0.05) return;
     const startCol = Math.max(0, Math.floor(this.camera.x / Constants.TILE_SIZE) - 2);
-    const endCol = Math.min(this.world.width - 1, Math.ceil((this.camera.x + this.canvas.width) / Constants.TILE_SIZE) + 2);
+    const endCol = Math.min(this.world.width - 1, Math.ceil((this.camera.x + this.canvas.width / this.zoom) / Constants.TILE_SIZE) + 2);
     const startRow = Math.max(0, Math.floor(this.camera.y / Constants.TILE_SIZE) - 2);
-    const endRow = Math.min(this.world.height - 1, Math.ceil((this.camera.y + this.canvas.height) / Constants.TILE_SIZE) + 2);
+    const endRow = Math.min(this.world.height - 1, Math.ceil((this.camera.y + this.canvas.height / this.zoom) / Constants.TILE_SIZE) + 2);
 
     this.ctx.globalCompositeOperation = "lighter";
     for (let x = startCol; x <= endCol; x++) {
       for (let y = startRow; y <= endRow; y++) {
         if (this.world.getTile(x, y) === Constants.BLOCK.TORCH) {
-          const sx = x * Constants.TILE_SIZE - this.camera.x + Constants.TILE_SIZE / 2;
-          const sy = y * Constants.TILE_SIZE - this.camera.y + Constants.TILE_SIZE / 2;
+          const sx = (x * Constants.TILE_SIZE - this.camera.x + Constants.TILE_SIZE / 2) * this.zoom;
+          const sy = (y * Constants.TILE_SIZE - this.camera.y + Constants.TILE_SIZE / 2) * this.zoom;
           const flicker = 1 + Math.sin(Date.now() * 0.01 + x * 7) * 0.1;
-          const radius = 80 * flicker;
+          const radius = 80 * flicker * this.zoom;
           const grad = this.ctx.createRadialGradient(sx, sy, 0, sx, sy, radius);
           grad.addColorStop(0, "rgba(255, 180, 60, 0.4)");
           grad.addColorStop(0.5, "rgba(255, 140, 40, 0.15)");
@@ -630,10 +680,16 @@ class Game {
     this.updateCamera();
 
     this.renderBackground();
-    this.world.render(this.ctx, this.camera.x, this.camera.y, this.canvas.width, this.canvas.height, this.timeOfDay);
+
+    this.ctx.save();
+    this.ctx.scale(this.zoom, this.zoom);
+    this.world.render(this.ctx, this.camera.x, this.camera.y, this.canvas.width / this.zoom, this.canvas.height / this.zoom, this.timeOfDay);
+    this.ctx.restore();
 
     this.renderBreakingProgress();
 
+    this.ctx.save();
+    this.ctx.scale(this.zoom, this.zoom);
     this.remotePlayers.forEach((rp) => {
       rp.render(this.ctx, this.camera.x, this.camera.y, false);
       rp.renderHealth(this.ctx, this.camera.x, this.camera.y);
@@ -642,6 +698,7 @@ class Game {
     if (this.localPlayer) {
       this.localPlayer.render(this.ctx, this.camera.x, this.camera.y, true);
     }
+    this.ctx.restore();
 
     this.renderTargetHighlight();
     this.renderDarknessOverlay();

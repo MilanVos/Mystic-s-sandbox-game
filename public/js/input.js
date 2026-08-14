@@ -4,13 +4,16 @@ class InputManager {
     this.keys = {};
     this.mouse = { x: 0, y: 0, worldX: 0, worldY: 0 };
     this.mouseDown = { left: false, right: false };
-    this.disabled = false;
+    this.disabled = true;
     this.chatOpen = false;
     this.craftingOpen = false;
+    this.luaEditorOpen = false;
     this.hotbarIndex = 0;
     this.onHotbarSelect = null;
     this.onToggleCrafting = null;
     this.onToggleChat = null;
+    this.onToggleLuaEditor = null;
+    this.onToggleCreative = null;
 
     window.addEventListener("keydown", (e) => this.handleKeyDown(e));
     window.addEventListener("keyup", (e) => this.handleKeyUp(e));
@@ -22,10 +25,20 @@ class InputManager {
   }
 
   handleKeyDown(e) {
+    if (this.disabled) return;
+
     if (this.chatOpen) {
       if (e.key === "Escape") {
         this.chatOpen = false;
         if (this.onToggleChat) this.onToggleChat(false);
+      }
+      return;
+    }
+
+    if (this.luaEditorOpen) {
+      if (e.key === "Escape") {
+        this.luaEditorOpen = false;
+        if (this.onToggleLuaEditor) this.onToggleLuaEditor(false);
       }
       return;
     }
@@ -51,6 +64,19 @@ class InputManager {
       e.preventDefault();
       this.craftingOpen = true;
       if (this.onToggleCrafting) this.onToggleCrafting(true);
+      return;
+    }
+
+    if (key === "l") {
+      e.preventDefault();
+      this.luaEditorOpen = true;
+      if (this.onToggleLuaEditor) this.onToggleLuaEditor(true);
+      return;
+    }
+
+    if (key === "f") {
+      e.preventDefault();
+      if (this.onToggleCreative) this.onToggleCreative();
       return;
     }
 
@@ -80,7 +106,7 @@ class InputManager {
   }
 
   handleMouseDown(e) {
-    if (this.disabled || this.chatOpen || this.craftingOpen) return;
+    if (this.disabled || this.chatOpen || this.craftingOpen || this.luaEditorOpen) return;
     e.preventDefault();
     if (e.button === 0) this.mouseDown.left = true;
     if (e.button === 2) this.mouseDown.right = true;
@@ -92,7 +118,7 @@ class InputManager {
   }
 
   handleWheel(e) {
-    if (this.disabled || this.chatOpen || this.craftingOpen) return;
+    if (this.disabled || this.chatOpen || this.craftingOpen || this.luaEditorOpen) return;
     e.preventDefault();
     const dir = e.deltaY > 0 ? 1 : -1;
     let idx = (this.hotbarIndex + dir) % 9;
@@ -124,17 +150,27 @@ class InputManager {
     return this.isKeyDown("w") || this.isKeyDown("arrowup") || this.isKeyDown("Space") || this.isKeyDown(" ");
   }
 
+  isFlyingDown() {
+    return this.isKeyDown("shift") || this.isKeyDown("ShiftLeft") || this.isKeyDown("ShiftRight");
+  }
+
   setDisabled(disabled) {
     this.disabled = disabled;
     if (disabled) {
       this.mouseDown.left = false;
       this.mouseDown.right = false;
+      this.keys = {};
     }
   }
 
-  updateMouseWorld(cameraX, cameraY) {
-    this.mouse.worldX = this.mouse.x + cameraX;
-    this.mouse.worldY = this.mouse.y + cameraY;
+  updateMouseWorld(cameraX, cameraY, zoom) {
+    if (zoom && zoom !== 1) {
+      this.mouse.worldX = this.mouse.x / zoom + cameraX;
+      this.mouse.worldY = this.mouse.y / zoom + cameraY;
+    } else {
+      this.mouse.worldX = this.mouse.x + cameraX;
+      this.mouse.worldY = this.mouse.y + cameraY;
+    }
   }
 
   getMouseTile() {

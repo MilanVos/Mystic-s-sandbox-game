@@ -14,6 +14,7 @@ class NetworkManager {
     this.onPlayerPositions = null;
     this.onRespawn = null;
     this.onError = null;
+    this.onLuaResult = null;
     this.connected = false;
   }
 
@@ -87,6 +88,10 @@ class NetworkManager {
     this.socket.on(Constants.SOCKET_EVENTS.ERROR, (msg) => {
       if (this.onError) this.onError(msg);
     });
+
+    this.socket.on(Constants.SOCKET_EVENTS.LUA_RESULT, (data) => {
+      if (this.onLuaResult) this.onLuaResult(data);
+    });
   }
 
   join(username) {
@@ -122,5 +127,15 @@ class NetworkManager {
   requestRespawn() {
     if (!this.socket || !this.connected) return;
     this.socket.emit("respawn");
+  }
+
+  sendCreativeToggle(creative) {
+    if (!this.socket || !this.connected) return;
+    this.socket.emit(Constants.SOCKET_EVENTS.CREATIVE_TOGGLE, { creative });
+  }
+
+  runLua(code) {
+    if (!this.socket || !this.connected) return;
+    this.socket.emit(Constants.SOCKET_EVENTS.LUA_RUN, code);
   }
 }

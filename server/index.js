@@ -4,6 +4,7 @@ const path = require("path");
 const { Server } = require("socket.io");
 const C = require("../shared/constants");
 const GameServer = require("./game");
+const LuaRuntime = require("./lua");
 
 const app = express();
 const server = http.createServer(app);
@@ -13,6 +14,7 @@ const io = new Server(server, {
 
 const PORT = process.env.PORT || 3000;
 const game = new GameServer();
+const lua = new LuaRuntime(game, io);
 
 app.use(express.static(path.join(__dirname, "..", "public")));
 app.use("/shared", express.static(path.join(__dirname, "..", "shared")));
@@ -57,6 +59,8 @@ io.on("connection", (socket) => {
     });
 
     io.emit(C.SOCKET_EVENTS.PLAYER_LIST, game.getPlayerList());
+
+    lua.onPlayerJoin(player);
   });
 
   socket.on(C.SOCKET_EVENTS.PLAYER_MOVE, (data) => {
@@ -70,6 +74,7 @@ io.on("connection", (socket) => {
     const result = game.handleBlockBreak(socket.id, data.x, data.y);
     if (result) {
       io.emit(C.SOCKET_EVENTS.BLOCK_CHANGE, { x: result.x, y: result.y, tileId: result.tileId });
+      lua.onBlockBreak(socket.id, result.x, result.y, result.brokenBlock);
     }
   });
 
@@ -77,6 +82,7 @@ io.on("connection", (socket) => {
     const result = game.handleBlockPlace(socket.id, data.x, data.y, data.blockId);
     if (result) {
       io.emit(C.SOCKET_EVENTS.BLOCK_CHANGE, { x: result.x, y: result.y, tileId: result.tileId });
+      lua.onBlockPlace(socket.id, result.x, result.y, result.tileId);
     }
   });
 
@@ -92,6 +98,23 @@ io.on("connection", (socket) => {
       message: cleanMsg,
       timestamp: Date.now(),
     });
+    lua.onChat(socket.id, player.username, cleanMsg);
+  });
+
+  socket.on(C.SOCKET_EVENTS.CREATIVE_TOGGLE, (data) => {
+    const player = game.getPlayer(socket.id);
+    if (player) {
+      player.creativeMode = !!data.creative;
+    }
+  });
+
+  socket.on(C.SOCKET_EVENTS.LUA_RUN, (code) => {
+    const player = game.getPlayer(socket.id);
+    if (!player) return;
+    const script = (code || "").substring(0, 50000);
+    console.log(`[Server] Lua script from ${player.username} (${script.length} chars)`);
+    const result = lua.runScript(script);
+    socket.emit(C.SOCKET_EVENTS.LUA_RESULT, result);
   });
 
   socket.on("respawn", () => {
@@ -122,10 +145,14 @@ io.on("connection", (socket) => {
 
   socket.on("disconnect", () => {
     console.log(`[Server] Socket disconnected: ${socket.id}`);
+    const player = game.getPlayer(socket.id);
     connectedSockets.delete(socket.id);
     game.removePlayer(socket.id);
     io.emit(C.SOCKET_EVENTS.PLAYER_LEFT, { id: socket.id });
     io.emit(C.SOCKET_EVENTS.PLAYER_LIST, game.getPlayerList());
+    if (player) {
+      lua.onPlayerLeave(socket.id, player.username);
+    }
   });
 });
 
@@ -145,6 +172,7 @@ setInterval(() => {
       facing: p.facing,
       onGround: p.onGround,
       health: p.health,
+      flying: p.flying || false,
     };
   });
   io.emit("player_positions", playerData);

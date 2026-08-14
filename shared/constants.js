@@ -83,6 +83,9 @@
   ];
 
   const DAY_NIGHT_DURATION = 120000;
+  const FLY_SPEED = 6;
+  const CAMERA_ZOOM = 0.75;
+  const CAMERA_LOOKAHEAD = 120;
 
   const SOCKET_EVENTS = {
     JOIN: "join",
@@ -100,6 +103,11 @@
     PING: "ping",
     PONG: "pong",
     ERROR: "error",
+    CREATIVE_TOGGLE: "creative_toggle",
+    LUA_RUN: "lua_run",
+    LUA_RESULT: "lua_result",
+    LUA_ERROR: "lua_error",
+    LUA_SCRIPT: "lua_script",
   };
 
   return {
@@ -114,6 +122,9 @@
     PLAYER_HEIGHT,
     PLAYER_MAX_HEALTH,
     REACH_DISTANCE,
+    FLY_SPEED,
+    CAMERA_ZOOM,
+    CAMERA_LOOKAHEAD,
     BLOCK,
     BLOCK_DATA,
     HOTBAR_BLOCKS,
