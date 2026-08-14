@@ -11,6 +11,8 @@ class Game {
     this.inventory = new InventoryManager();
     this.chat = null;
     this.luaEditor = null;
+    this.gameBrowser = null;
+    this.currentGameName = null;
 
     this.localPlayer = null;
     this.remotePlayers = new Map();
@@ -24,9 +26,15 @@ class Game {
     this.gameStarted = false;
     this.lastBreakSend = 0;
     this.lastPlaceSend = 0;
+    this.lastToolUse = 0;
     this.breakingTile = null;
     this.breakingStartTime = 0;
     this.isDead = false;
+    this.uiElements = new Map();
+    this.tools = [];
+    this.equippedTool = null;
+    this.remoteEventHandlers = {};
+    this.registeredRemoteEvents = new Set();
 
     this.setupInputCallbacks();
     this.setupNetworkCallbacks();
@@ -104,11 +112,12 @@ class Game {
       };
 
       document.getElementById("loading-screen").style.display = "none";
-      document.getElementById("crosshair").style.display = "block";
-      document.getElementById("player-list-panel").style.display = "block";
-      this.gameStarted = true;
-      this.input.setDisabled(false);
-      this.updateModeDisplay();
+
+      if (this.gameBrowser) {
+        this.gameBrowser.open();
+      } else {
+        this.startGame();
+      }
     };
 
     this.network.onWorldData = (data) => {
@@ -188,6 +197,62 @@ class Game {
     this.network.onLuaResult = (data) => {
       if (this.luaEditor) this.luaEditor.handleResult(data);
     };
+
+    this.network.onUICreate = (data) => {
+      this.createUIElement(data);
+    };
+
+    this.network.onUIUpdate = (data) => {
+      this.updateUIElement(data);
+    };
+
+    this.network.onUIRemove = (data) => {
+      this.removeUIElement(data.id);
+    };
+
+    this.network.onToolList = (data) => {
+      this.updateToolbar(data.tools || []);
+    };
+
+    this.network.onTeamUpdate = (teams) => {
+      this.updateTeamPanel(teams);
+    };
+
+    this.network.onRemoteEvent = (data) => {
+      if (this.remoteEventHandlers && this.remoteEventHandlers[data.name]) {
+        this.remoteEventHandlers[data.name](data.data);
+      }
+    };
+
+    this.network.onRemoteEventRegister = (data) => {
+      this.registeredRemoteEvents = this.registeredRemoteEvents || new Set();
+      this.registeredRemoteEvents.add(data.name);
+    };
+
+    this.network.onPlayerTeleport = (data) => {
+      if (this.localPlayer) {
+        this.localPlayer.x = data.x;
+        this.localPlayer.y = data.y;
+        this.localPlayer.vx = 0;
+        this.localPlayer.vy = 0;
+      }
+    };
+
+    this.network.onPlayerSpeed = (data) => {
+      if (this.localPlayer) {
+        this.localPlayer.customSpeed = data.speed;
+      }
+    };
+
+    this.network.onPlayerHealthSet = (data) => {
+      if (this.localPlayer) {
+        this.localPlayer.health = data.health;
+        this.updateHealthBar();
+        if (this.localPlayer.health <= 0) {
+          this.handleDeath();
+        }
+      }
+    };
   }
 
   setupLoginScreen() {
@@ -209,6 +274,12 @@ class Game {
       this.network.connect();
       this.chat = new ChatManager(this.network.socket);
       this.luaEditor = new LuaEditor(this.network);
+      this.gameBrowser = new GameBrowser(this.network);
+
+      this.gameBrowser.onCreateJoin = (gameData) => {
+        this.currentGameName = gameData ? gameData.name : "Sandbox";
+        this.startGame();
+      };
 
       this.network.socket.on("connect", () => {
         this.network.join(username);
@@ -224,6 +295,18 @@ class Game {
       if (e.key === "Enter") tryJoin();
     });
     usernameInput.focus();
+  }
+
+  startGame() {
+    document.getElementById("crosshair").style.display = "block";
+    document.getElementById("player-list-panel").style.display = "block";
+    const gameNameEl = document.getElementById("game-name-display");
+    if (gameNameEl && this.currentGameName) {
+      gameNameEl.textContent = this.currentGameName;
+    }
+    this.gameStarted = true;
+    this.input.setDisabled(false);
+    this.updateModeDisplay();
   }
 
   setupCraftingMenu() {
@@ -291,6 +374,142 @@ class Game {
     const div = document.createElement("div");
     div.textContent = text;
     return div.innerHTML;
+  }
+
+  createUIElement(data) {
+    const layer = document.getElementById("lua-ui-layer");
+    if (!layer) return;
+
+    let el;
+    if (data.type === "button") {
+      el = document.createElement("button");
+      el.className = "lua-ui-button";
+      el.textContent = data.text || "";
+      el.style.background = data.color || "#4ee4ec";
+      el.addEventListener("click", () => {
+        this.network.sendUIEvent(data.id);
+      });
+    } else if (data.type === "label") {
+      el = document.createElement("div");
+      el.className = "lua-ui-label";
+      el.textContent = data.text || "";
+      el.style.color = data.color || "#ffffff";
+      el.style.fontSize = (data.fontSize || 16) + "px";
+    } else if (data.type === "frame") {
+      el = document.createElement("div");
+      el.className = "lua-ui-frame";
+      el.style.background = data.color || "rgba(0,0,0,0.5)";
+    } else {
+      return;
+    }
+
+    el.dataset.uiId = data.id;
+    el.style.left = (data.x || 0) + "px";
+    el.style.top = (data.y || 0) + "px";
+    el.style.width = (data.w || 100) + "px";
+    el.style.height = (data.h || 40) + "px";
+
+    const existing = layer.querySelector(`[data-ui-id="${data.id}"]`);
+    if (existing) existing.remove();
+
+    layer.appendChild(el);
+    this.uiElements.set(data.id, el);
+  }
+
+  updateUIElement(data) {
+    const el = this.uiElements.get(data.id);
+    if (!el) return;
+    const props = data.props || {};
+    if (props.text !== undefined) el.textContent = props.text;
+    if (props.color !== undefined) {
+      if (el.classList.contains("lua-ui-button")) {
+        el.style.background = props.color;
+      } else {
+        el.style.color = props.color;
+      }
+    }
+    if (props.x !== undefined) el.style.left = props.x + "px";
+    if (props.y !== undefined) el.style.top = props.y + "px";
+    if (props.w !== undefined) el.style.width = props.w + "px";
+    if (props.h !== undefined) el.style.height = props.h + "px";
+    if (props.fontSize !== undefined) el.style.fontSize = props.fontSize + "px";
+  }
+
+  removeUIElement(id) {
+    const el = this.uiElements.get(id);
+    if (el) {
+      el.remove();
+      this.uiElements.delete(id);
+    }
+  }
+
+  updateToolbar(tools) {
+    this.tools = tools;
+    const toolbar = document.getElementById("toolbar");
+    const slots = document.getElementById("toolbar-slots");
+    slots.innerHTML = "";
+
+    if (tools.length === 0) {
+      toolbar.style.display = "none";
+      this.equippedTool = null;
+      return;
+    }
+
+    toolbar.style.display = "flex";
+
+    for (const toolId of tools) {
+      const toolData = Object.values(Constants.TOOLS).find(t => t.id === toolId);
+      if (!toolData) continue;
+
+      const slot = document.createElement("div");
+      slot.className = "toolbar-slot";
+      if (this.equippedTool === toolId) slot.classList.add("active");
+      slot.textContent = toolData.icon;
+      slot.title = toolData.name;
+
+      const nameEl = document.createElement("span");
+      nameEl.className = "tool-name";
+      nameEl.textContent = toolData.name;
+      slot.appendChild(nameEl);
+
+      slot.addEventListener("click", () => {
+        this.equippedTool = toolId;
+        this.network.equipTool(toolId);
+        slots.querySelectorAll(".toolbar-slot").forEach(s => s.classList.remove("active"));
+        slot.classList.add("active");
+      });
+
+      slots.appendChild(slot);
+    }
+  }
+
+  updateTeamPanel(teams) {
+    const panel = document.getElementById("team-panel");
+    const list = document.getElementById("team-list");
+    list.innerHTML = "";
+
+    if (!teams || teams.length === 0) {
+      panel.style.display = "none";
+      return;
+    }
+
+    const hasPlayers = teams.some(t => t.playerCount > 0);
+    panel.style.display = hasPlayers ? "block" : "none";
+
+    for (const t of teams) {
+      const entry = document.createElement("div");
+      entry.className = "team-entry";
+      entry.innerHTML = `<div class="team-color-dot" style="background:${t.color}"></div> ${this.escapeHtml(t.name)} (${t.playerCount})`;
+      list.appendChild(entry);
+    }
+  }
+
+  fireRemoteEvent(name, data) {
+    this.network.fireRemoteEvent(name, data);
+  }
+
+  onRemoteEvent(name, handler) {
+    this.remoteEventHandlers[name] = handler;
   }
 
   updateCamera() {
@@ -497,6 +716,23 @@ class Game {
 
     this.input.updateMouseWorld(this.camera.x, this.camera.y, this.zoom);
     const mouseTile = this.input.getMouseTile();
+
+    if (this.equippedTool && this.input.isLeftDown()) {
+      const now = Date.now();
+      if (now - this.lastToolUse > 200) {
+        this.lastToolUse = now;
+        this.network.useTool(mouseTile.x, mouseTile.y);
+      }
+      this.breakingTile = null;
+      this.breakingStartTime = 0;
+      return;
+    }
+
+    if (this.equippedTool && this.input.isRightDown()) {
+      this.breakingTile = null;
+      this.breakingStartTime = 0;
+      return;
+    }
 
     const playerTileX = Math.floor((this.localPlayer.x + Constants.PLAYER_WIDTH / 2) / Constants.TILE_SIZE);
     const playerTileY = Math.floor((this.localPlayer.y + Constants.PLAYER_HEIGHT / 2) / Constants.TILE_SIZE);

@@ -1,6 +1,10 @@
 const fengari = require("fengari");
 const { lua, lauxlib, lualib } = fengari;
 const C = require("../shared/constants");
+const fs = require("fs");
+const path = require("path");
+
+const DATASTORE_FILE = path.join(__dirname, "..", "datastore.json");
 
 class LuaRuntime {
   constructor(gameServer, io) {
@@ -13,9 +17,34 @@ class LuaRuntime {
       onBlockBreak: [],
       onBlockPlace: [],
       onChat: [],
+      onToolUse: [],
+      onRemoteEvent: [],
+      onUIEvent: [],
     };
     this.output = [];
+    this.remoteEvents = new Map();
+    this.dataStore = this.loadDataStore();
+    this.uiCounter = 0;
     this.init();
+  }
+
+  loadDataStore() {
+    try {
+      if (fs.existsSync(DATASTORE_FILE)) {
+        return JSON.parse(fs.readFileSync(DATASTORE_FILE, "utf8"));
+      }
+    } catch (e) {
+      console.error("[Lua] Failed to load datastore:", e.message);
+    }
+    return {};
+  }
+
+  saveDataStore() {
+    try {
+      fs.writeFileSync(DATASTORE_FILE, JSON.stringify(this.dataStore, null, 2));
+    } catch (e) {
+      console.error("[Lua] Failed to save datastore:", e.message);
+    }
   }
 
   init() {
@@ -44,9 +73,39 @@ class LuaRuntime {
     return lua.lua_tonumber(this.L, index);
   }
 
+  getArgBool(index) {
+    return lua.lua_toboolean(this.L, index) === 1;
+  }
+
+  pushTable(obj) {
+    lua.lua_createtable(this.L, 0, 0);
+    for (const k in obj) {
+      const v = obj[k];
+      if (typeof v === "string") {
+        lua.lua_pushstring(this.L, fengari.to_luastring(v));
+      } else if (typeof v === "number") {
+        if (Number.isInteger(v)) {
+          lua.lua_pushinteger(this.L, v);
+        } else {
+          lua.lua_pushnumber(this.L, v);
+        }
+      } else if (typeof v === "boolean") {
+        lua.lua_pushboolean(this.L, v ? 1 : 0);
+      } else if (v === null || v === undefined) {
+        lua.lua_pushnil(this.L);
+      } else if (typeof v === "object") {
+        this.pushTable(v);
+      } else {
+        lua.lua_pushnil(this.L);
+      }
+      lua.lua_setfield(this.L, -2, fengari.to_luastring(k));
+    }
+  }
+
   setupAPI() {
     const self = this;
 
+    // ===== WORLD API =====
     this.pushJSFunction((L) => {
       const x = self.getArgInt(1);
       const y = self.getArgInt(2);
@@ -87,66 +146,13 @@ class LuaRuntime {
     this.setGlobal("getTile");
 
     this.pushJSFunction((L) => {
-      lua.lua_createtable(self.L, 0, 2);
-      lua.lua_pushinteger(self.L, self.game.world.width);
-      lua.lua_setfield(self.L, -2, fengari.to_luastring("width"));
-      lua.lua_pushinteger(self.L, self.game.world.height);
-      lua.lua_setfield(self.L, -2, fengari.to_luastring("height"));
+      self.pushTable({
+        width: self.game.world.width,
+        height: self.game.world.height,
+      });
       return 1;
     });
     this.setGlobal("getWorldSize");
-
-    this.pushJSFunction((L) => {
-      lua.lua_createtable(self.L, 0, 0);
-      let i = 1;
-      self.game.players.forEach((p) => {
-        lua.lua_createtable(self.L, 0, 5);
-        lua.lua_pushstring(self.L, fengari.to_luastring(p.id));
-        lua.lua_setfield(self.L, -2, fengari.to_luastring("id"));
-        lua.lua_pushstring(self.L, fengari.to_luastring(p.username));
-        lua.lua_setfield(self.L, -2, fengari.to_luastring("name"));
-        lua.lua_pushinteger(self.L, Math.floor(p.x / C.TILE_SIZE));
-        lua.lua_setfield(self.L, -2, fengari.to_luastring("x"));
-        lua.lua_pushinteger(self.L, Math.floor(p.y / C.TILE_SIZE));
-        lua.lua_setfield(self.L, -2, fengari.to_luastring("y"));
-        lua.lua_pushinteger(self.L, p.health);
-        lua.lua_setfield(self.L, -2, fengari.to_luastring("health"));
-        lua.lua_rawseti(self.L, -2, i);
-        i++;
-      });
-      return 1;
-    });
-    this.setGlobal("getPlayers");
-
-    this.pushJSFunction((L) => {
-      const playerId = self.getArg(1);
-      const message = self.getArg(2);
-      const player = self.game.getPlayer(playerId);
-      if (player) {
-        self.io.to(playerId).emit(C.SOCKET_EVENTS.CHAT_MESSAGE, {
-          id: "SERVER",
-          username: "Server",
-          color: "#4ee4ec",
-          message: message,
-          timestamp: Date.now(),
-        });
-      }
-      return 0;
-    });
-    this.setGlobal("sendMessage");
-
-    this.pushJSFunction((L) => {
-      const message = self.getArg(1);
-      self.io.emit(C.SOCKET_EVENTS.CHAT_MESSAGE, {
-        id: "SERVER",
-        username: "Server",
-        color: "#4ee4ec",
-        message: message,
-        timestamp: Date.now(),
-      });
-      return 0;
-    });
-    this.setGlobal("broadcast");
 
     this.pushJSFunction((L) => {
       const x1 = self.getArgInt(1);
@@ -192,6 +198,429 @@ class LuaRuntime {
     });
     this.setGlobal("setSpawn");
 
+    // ===== PLAYER API =====
+    this.pushJSFunction((L) => {
+      lua.lua_createtable(self.L, 0, 0);
+      let i = 1;
+      self.game.players.forEach((p) => {
+        self.pushTable({
+          id: p.id,
+          name: p.username,
+          x: Math.floor(p.x / C.TILE_SIZE),
+          y: Math.floor(p.y / C.TILE_SIZE),
+          health: p.health,
+          team: p.team || "None",
+          flying: p.flying || false,
+          creative: p.creativeMode || false,
+        });
+        lua.lua_rawseti(self.L, -2, i);
+        i++;
+      });
+      return 1;
+    });
+    this.setGlobal("getPlayers");
+
+    this.pushJSFunction((L) => {
+      const playerId = self.getArg(1);
+      const player = self.game.getPlayer(playerId);
+      if (player) {
+        self.pushTable({
+          id: player.id,
+          name: player.username,
+          x: Math.floor(player.x / C.TILE_SIZE),
+          y: Math.floor(player.y / C.TILE_SIZE),
+          health: player.health,
+          team: player.team || "None",
+          flying: player.flying || false,
+          creative: player.creativeMode || false,
+        });
+        return 1;
+      }
+      lua.lua_pushnil(self.L);
+      return 1;
+    });
+    this.setGlobal("getPlayerInfo");
+
+    this.pushJSFunction((L) => {
+      const playerId = self.getArg(1);
+      const x = self.getArgInt(2);
+      const y = self.getArgInt(3);
+      const player = self.game.getPlayer(playerId);
+      if (player) {
+        player.x = x * C.TILE_SIZE;
+        player.y = y * C.TILE_SIZE;
+        player.vx = 0;
+        player.vy = 0;
+        self.io.to(playerId).emit(C.SOCKET_EVENTS.PLAYER_TELEPORT, {
+          x: player.x, y: player.y,
+        });
+        self.io.emit(C.SOCKET_EVENTS.PLAYER_MOVE, {
+          id: playerId, x: player.x, y: player.y,
+          vx: 0, vy: 0, facing: player.facing,
+          onGround: false, health: player.health, flying: player.flying,
+        });
+      }
+      return 0;
+    });
+    this.setGlobal("teleportPlayer");
+
+    this.pushJSFunction((L) => {
+      const playerId = self.getArg(1);
+      const speed = self.getArgNum(2);
+      const player = self.game.getPlayer(playerId);
+      if (player) {
+        player.customSpeed = speed;
+        self.io.to(playerId).emit(C.SOCKET_EVENTS.PLAYER_SPEED, { speed });
+      }
+      return 0;
+    });
+    this.setGlobal("setPlayerSpeed");
+
+    this.pushJSFunction((L) => {
+      const playerId = self.getArg(1);
+      const health = self.getArgInt(2);
+      const player = self.game.getPlayer(playerId);
+      if (player) {
+        player.health = Math.max(0, Math.min(C.PLAYER_MAX_HEALTH, health));
+        self.io.emit(C.SOCKET_EVENTS.HEALTH_UPDATE, {
+          id: playerId, health: player.health,
+        });
+        self.io.to(playerId).emit(C.SOCKET_EVENTS.PLAYER_HEALTH_SET, {
+          health: player.health,
+        });
+      }
+      return 0;
+    });
+    this.setGlobal("setPlayerHealth");
+
+    this.pushJSFunction((L) => {
+      const playerId = self.getArg(1);
+      const message = self.getArg(2);
+      const player = self.game.getPlayer(playerId);
+      if (player) {
+        self.io.to(playerId).emit(C.SOCKET_EVENTS.CHAT_MESSAGE, {
+          id: "SERVER",
+          username: "Server",
+          color: "#4ee4ec",
+          message: message,
+          timestamp: Date.now(),
+        });
+      }
+      return 0;
+    });
+    this.setGlobal("sendMessage");
+
+    this.pushJSFunction((L) => {
+      const message = self.getArg(1);
+      self.io.emit(C.SOCKET_EVENTS.CHAT_MESSAGE, {
+        id: "SERVER",
+        username: "Server",
+        color: "#4ee4ec",
+        message: message,
+        timestamp: Date.now(),
+      });
+      return 0;
+    });
+    this.setGlobal("broadcast");
+
+    // ===== UI API =====
+    this.pushJSFunction((L) => {
+      const playerId = self.getArg(1);
+      const playerIdNum = self.getArg(1);
+      const type = "button";
+      const id = "ui_" + (++self.uiCounter);
+      const text = self.getArg(2);
+      const x = self.getArgNum(3);
+      const y = self.getArgNum(4);
+      const w = self.getArgNum(5);
+      const h = self.getArgNum(6);
+      const color = self.getArg(7) || "#4ee4ec";
+
+      const player = self.game.getPlayer(playerIdNum);
+      if (player) {
+        self.io.to(playerIdNum).emit(C.SOCKET_EVENTS.UI_CREATE, {
+          id, type, text, x, y, w, h, color,
+        });
+      }
+      lua.lua_pushstring(self.L, fengari.to_luastring(id));
+      return 1;
+    });
+    this.setGlobal("_createButton");
+
+    this.pushJSFunction((L) => {
+      const playerId = self.getArg(1);
+      const id = "ui_" + (++self.uiCounter);
+      const text = self.getArg(2);
+      const x = self.getArgNum(3);
+      const y = self.getArgNum(4);
+      const w = self.getArgNum(5);
+      const h = self.getArgNum(6);
+      const color = self.getArg(7) || "#ffffff";
+      const fontSize = self.getArgNum(8) || 16;
+
+      const player = self.game.getPlayer(playerId);
+      if (player) {
+        self.io.to(playerId).emit(C.SOCKET_EVENTS.UI_CREATE, {
+          id, type: "label", text, x, y, w, h, color, fontSize,
+        });
+      }
+      lua.lua_pushstring(self.L, fengari.to_luastring(id));
+      return 1;
+    });
+    this.setGlobal("_createLabel");
+
+    this.pushJSFunction((L) => {
+      const playerId = self.getArg(1);
+      const id = "ui_" + (++self.uiCounter);
+      const x = self.getArgNum(2);
+      const y = self.getArgNum(3);
+      const w = self.getArgNum(4);
+      const h = self.getArgNum(5);
+      const color = self.getArg(6) || "rgba(0,0,0,0.5)";
+
+      const player = self.game.getPlayer(playerId);
+      if (player) {
+        self.io.to(playerId).emit(C.SOCKET_EVENTS.UI_CREATE, {
+          id, type: "frame", x, y, w, h, color,
+        });
+      }
+      lua.lua_pushstring(self.L, fengari.to_luastring(id));
+      return 1;
+    });
+    this.setGlobal("_createFrame");
+
+    this.pushJSFunction((L) => {
+      const playerId = self.getArg(1);
+      const elementId = self.getArg(2);
+      const player = self.game.getPlayer(playerId);
+      if (player) {
+        self.io.to(playerId).emit(C.SOCKET_EVENTS.UI_REMOVE, { id: elementId });
+      }
+      return 0;
+    });
+    this.setGlobal("_removeUI");
+
+    this.pushJSFunction((L) => {
+      const playerId = self.getArg(1);
+      const elementId = self.getArg(2);
+      const props = {};
+      const n = lua.lua_gettop(self.L);
+      if (n >= 3 && lua.lua_type(self.L, 3) === lua.LUA_TTABLE) {
+        lua.lua_pushnil(self.L);
+        while (lua.lua_next(self.L, 3) !== 0) {
+          const key = fengari.to_jsstring(lua.lua_tostring(self.L, -2));
+          const valType = lua.lua_type(self.L, -1);
+          let val;
+          if (valType === lua.LUA_TSTRING) {
+            val = fengari.to_jsstring(lua.lua_tostring(self.L, -1));
+          } else if (valType === lua.LUA_TNUMBER) {
+            val = lua.lua_tonumber(self.L, -1);
+          } else if (valType === lua.LUA_TBOOLEAN) {
+            val = lua.lua_toboolean(self.L, -1) === 1;
+          }
+          if (key && val !== undefined) props[key] = val;
+          lua.lua_pop(self.L, 1);
+        }
+      }
+      const player = self.game.getPlayer(playerId);
+      if (player) {
+        self.io.to(playerId).emit(C.SOCKET_EVENTS.UI_UPDATE, {
+          id: elementId, props,
+        });
+      }
+      return 0;
+    });
+    this.setGlobal("_updateUI");
+
+    // ===== DATASTORE API =====
+    this.pushJSFunction((L) => {
+      const playerId = self.getArg(1);
+      const key = self.getArg(2);
+      const storeKey = playerId + ":" + key;
+      const val = self.dataStore[storeKey];
+      if (val !== undefined) {
+        if (typeof val === "string") {
+          lua.lua_pushstring(self.L, fengari.to_luastring(val));
+        } else if (typeof val === "number") {
+          lua.lua_pushnumber(self.L, val);
+        } else if (typeof val === "boolean") {
+          lua.lua_pushboolean(self.L, val ? 1 : 0);
+        } else {
+          lua.lua_pushnil(self.L);
+        }
+      } else {
+        lua.lua_pushnil(self.L);
+      }
+      return 1;
+    });
+    this.setGlobal("datastoreGet");
+
+    this.pushJSFunction((L) => {
+      const playerId = self.getArg(1);
+      const key = self.getArg(2);
+      const storeKey = playerId + ":" + key;
+      const valType = lua.lua_type(self.L, 3);
+      let val;
+      if (valType === lua.LUA_TSTRING) {
+        val = fengari.to_jsstring(lua.lua_tostring(self.L, 3));
+      } else if (valType === lua.LUA_TNUMBER) {
+        val = lua.lua_tonumber(self.L, 3);
+      } else if (valType === lua.LUA_TBOOLEAN) {
+        val = lua.lua_toboolean(self.L, 3) === 1;
+      } else {
+        val = null;
+      }
+      self.dataStore[storeKey] = val;
+      self.saveDataStore();
+      return 0;
+    });
+    this.setGlobal("datastoreSet");
+
+    // ===== TEAMS API =====
+    this.pushJSFunction((L) => {
+      const name = self.getArg(1);
+      const color = self.getArg(2) || "#ffffff";
+      self.game.createTeam(name, color);
+      self.io.emit(C.SOCKET_EVENTS.TEAM_UPDATE, self.game.getTeamsData());
+      return 0;
+    });
+    this.setGlobal("createTeam");
+
+    this.pushJSFunction((L) => {
+      const playerId = self.getArg(1);
+      const teamName = self.getArg(2);
+      self.game.setPlayerTeam(playerId, teamName);
+      self.io.emit(C.SOCKET_EVENTS.TEAM_UPDATE, self.game.getTeamsData());
+      self.io.emit(C.SOCKET_EVENTS.PLAYER_LIST, self.game.getPlayerList());
+      return 0;
+    });
+    this.setGlobal("setPlayerTeam");
+
+    this.pushJSFunction((L) => {
+      const teamName = self.getArg(1);
+      const players = self.game.getPlayersInTeam(teamName);
+      lua.lua_createtable(self.L, 0, 0);
+      let i = 1;
+      for (const p of players) {
+        self.pushTable({ id: p.id, name: p.username, health: p.health });
+        lua.lua_rawseti(self.L, -2, i);
+        i++;
+      }
+      return 1;
+    });
+    this.setGlobal("getTeamPlayers");
+
+    this.pushJSFunction((L) => {
+      const teams = self.game.getTeamsData();
+      lua.lua_createtable(self.L, 0, 0);
+      let i = 1;
+      for (const t of teams) {
+        self.pushTable({ name: t.name, color: t.color, playerCount: t.playerCount });
+        lua.lua_rawseti(self.L, -2, i);
+        i++;
+      }
+      return 1;
+    });
+    this.setGlobal("getTeams");
+
+    // ===== TOOLS API =====
+    this.pushJSFunction((L) => {
+      const playerId = self.getArg(1);
+      const toolId = self.getArg(2);
+      const player = self.game.getPlayer(playerId);
+      if (player && C.TOOLS[toolId.toUpperCase()]) {
+        if (!player.tools) player.tools = [];
+        if (!player.tools.includes(toolId)) {
+          player.tools.push(toolId);
+        }
+        self.io.to(playerId).emit(C.SOCKET_EVENTS.TOOL_LIST, { tools: player.tools });
+      } else if (player && C.TOOL_LIST.includes(toolId)) {
+        if (!player.tools) player.tools = [];
+        if (!player.tools.includes(toolId)) {
+          player.tools.push(toolId);
+        }
+        self.io.to(playerId).emit(C.SOCKET_EVENTS.TOOL_LIST, { tools: player.tools });
+      }
+      return 0;
+    });
+    this.setGlobal("giveTool");
+
+    this.pushJSFunction((L) => {
+      const playerId = self.getArg(1);
+      const toolId = self.getArg(2);
+      const player = self.game.getPlayer(playerId);
+      if (player && player.tools) {
+        player.tools = player.tools.filter(t => t !== toolId);
+        if (player.equippedTool === toolId) player.equippedTool = null;
+        self.io.to(playerId).emit(C.SOCKET_EVENTS.TOOL_LIST, { tools: player.tools });
+      }
+      return 0;
+    });
+    this.setGlobal("removeTool");
+
+    this.pushJSFunction((L) => {
+      const playerId = self.getArg(1);
+      const player = self.game.getPlayer(playerId);
+      if (player) {
+        lua.lua_pushstring(self.L, fengari.to_luastring(player.equippedTool || ""));
+        return 1;
+      }
+      lua.lua_pushnil(self.L);
+      return 1;
+    });
+    this.setGlobal("getEquippedTool");
+
+    this.pushJSFunction((L) => {
+      const n = lauxlib.luaL_ref(self.L, lua.LUA_REGISTRYINDEX);
+      self.callbacks.onToolUse.push(n);
+      return 0;
+    });
+    this.setGlobal("onToolUse");
+
+    // ===== REMOTE EVENTS API =====
+    this.pushJSFunction((L) => {
+      const name = self.getArg(1);
+      if (!self.remoteEvents.has(name)) {
+        self.remoteEvents.set(name, true);
+      }
+      self.io.emit(C.SOCKET_EVENTS.REMOTE_EVENT_REGISTER, { name });
+      return 0;
+    });
+    this.setGlobal("registerRemoteEvent");
+
+    this.pushJSFunction((L) => {
+      const name = self.getArg(1);
+      const dataStr = self.getArg(2);
+      self.io.emit(C.SOCKET_EVENTS.REMOTE_EVENT, { name, data: dataStr, fromServer: true });
+      return 0;
+    });
+    this.setGlobal("fireRemoteEvent");
+
+    this.pushJSFunction((L) => {
+      const playerId = self.getArg(1);
+      const name = self.getArg(2);
+      const dataStr = self.getArg(3);
+      self.io.to(playerId).emit(C.SOCKET_EVENTS.REMOTE_EVENT, { name, data: dataStr, fromServer: true });
+      return 0;
+    });
+    this.setGlobal("fireRemoteEventTo");
+
+    this.pushJSFunction((L) => {
+      const n = lauxlib.luaL_ref(self.L, lua.LUA_REGISTRYINDEX);
+      self.callbacks.onRemoteEvent.push(n);
+      return 0;
+    });
+    this.setGlobal("onRemoteEvent");
+
+    // ===== UI EVENT CALLBACK =====
+    this.pushJSFunction((L) => {
+      const n = lauxlib.luaL_ref(self.L, lua.LUA_REGISTRYINDEX);
+      self.callbacks.onUIEvent.push(n);
+      return 0;
+    });
+    this.setGlobal("onUIEvent");
+
+    // ===== EVENT CALLBACKS =====
     this.pushJSFunction((L) => {
       const n = lauxlib.luaL_ref(self.L, lua.LUA_REGISTRYINDEX);
       self.callbacks.onPlayerJoin.push(n);
@@ -227,6 +656,7 @@ class LuaRuntime {
     });
     this.setGlobal("onChat");
 
+    // ===== PRINT =====
     this.pushJSFunction((L) => {
       const n = lua.lua_gettop(self.L);
       const args = [];
@@ -252,45 +682,112 @@ class LuaRuntime {
     this.setGlobal("print");
 
     this.setupBlockConstants();
-
-    const gameTable = `
-      local _M = {}
-      _M.placeBlock = placeBlock
-      _M.breakBlock = breakBlock
-      _M.getTile = getTile
-      _M.getWorldSize = getWorldSize
-      _M.getPlayers = getPlayers
-      _M.sendMessage = sendMessage
-      _M.broadcast = broadcast
-      _M.fillArea = fillArea
-      _M.setTime = setTime
-      _M.setSpawn = setSpawn
-      _M.onPlayerJoin = onPlayerJoin
-      _M.onPlayerLeave = onPlayerLeave
-      _M.onBlockBreak = onBlockBreak
-      _M.onBlockPlace = onBlockPlace
-      _M.onChat = onChat
-      return _M
-    `;
-    if (lauxlib.luaL_dostring(this.L, fengari.to_luastring(gameTable)) !== 0) {
-      console.error("[Lua] Failed to create game table");
-    }
-    this.setGlobal("game");
+    this.setupToolConstants();
+    this.setupWrapperTables();
   }
 
   setupBlockConstants() {
-    const blockNames = {};
-    for (const key in C.BLOCK) {
-      blockNames[C.BLOCK[key]] = key;
-    }
-
     let blockCode = "BLOCK = {}\n";
     for (const key in C.BLOCK) {
       blockCode += `BLOCK.${key} = ${C.BLOCK[key]}\n`;
     }
-
     if (lauxlib.luaL_dostring(this.L, fengari.to_luastring(blockCode)) !== 0) {
       console.error("[Lua] Failed to setup block constants");
+    }
+  }
+
+  setupToolConstants() {
+    let toolCode = "TOOL = {}\n";
+    for (const key in C.TOOLS) {
+      const t = C.TOOLS[key];
+      toolCode += `TOOL.${key} = "${t.id}"\n`;
+    }
+    if (lauxlib.luaL_dostring(this.L, fengari.to_luastring(toolCode)) !== 0) {
+      console.error("[Lua] Failed to setup tool constants");
+    }
+  }
+
+  setupWrapperTables() {
+    const wrapperCode = `
+      game = game or {}
+
+      -- UI namespace
+      ui = {}
+      ui.createButton = function(playerId, text, x, y, w, h, color)
+        return _createButton(playerId, text, x, y, w, h, color)
+      end
+      ui.createLabel = function(playerId, text, x, y, w, h, color, fontSize)
+        return _createLabel(playerId, text, x, y, w, h, color, fontSize)
+      end
+      ui.createFrame = function(playerId, x, y, w, h, color)
+        return _createFrame(playerId, x, y, w, h, color)
+      end
+      ui.remove = function(playerId, elementId)
+        _removeUI(playerId, elementId)
+      end
+      ui.update = function(playerId, elementId, props)
+        _updateUI(playerId, elementId, props)
+      end
+
+      -- DataStore namespace
+      datastore = {}
+      datastore.get = datastoreGet
+      datastore.set = datastoreSet
+
+      -- Teams namespace
+      teams = {}
+      teams.create = createTeam
+      teams.setPlayer = setPlayerTeam
+      teams.getPlayers = getTeamPlayers
+      teams.list = getTeams
+
+      -- Tools namespace
+      tools = {}
+      tools.give = giveTool
+      tools.remove = removeTool
+      tools.equipped = getEquippedTool
+      tools.onUse = onToolUse
+
+      -- Remote events namespace
+      remote = {}
+      remote.register = registerRemoteEvent
+      remote.fire = fireRemoteEvent
+      remote.fireTo = fireRemoteEventTo
+      remote.on = onRemoteEvent
+
+      -- Player namespace
+      player = {}
+      player.teleport = teleportPlayer
+      player.setSpeed = setPlayerSpeed
+      player.setHealth = setPlayerHealth
+      player.getInfo = getPlayerInfo
+
+      -- Game table extensions
+      game.placeBlock = placeBlock
+      game.breakBlock = breakBlock
+      game.getTile = getTile
+      game.getWorldSize = getWorldSize
+      game.getPlayers = getPlayers
+      game.getPlayerInfo = getPlayerInfo
+      game.sendMessage = sendMessage
+      game.broadcast = broadcast
+      game.fillArea = fillArea
+      game.setTime = setTime
+      game.setSpawn = setSpawn
+      game.teleportPlayer = teleportPlayer
+      game.setPlayerSpeed = setPlayerSpeed
+      game.setPlayerHealth = setPlayerHealth
+      game.onPlayerJoin = onPlayerJoin
+      game.onPlayerLeave = onPlayerLeave
+      game.onBlockBreak = onBlockBreak
+      game.onBlockPlace = onBlockPlace
+      game.onChat = onChat
+      game.onToolUse = onToolUse
+      game.onUIEvent = onUIEvent
+    `;
+    if (lauxlib.luaL_dostring(this.L, fengari.to_luastring(wrapperCode)) !== 0) {
+      const err = fengari.to_jsstring(lua.lua_tostring(this.L, -1));
+      console.error("[Lua] Failed to setup wrapper tables:", err);
     }
   }
 
@@ -320,22 +817,15 @@ class LuaRuntime {
         if (typeof arg === "string") {
           lua.lua_pushstring(this.L, fengari.to_luastring(arg));
         } else if (typeof arg === "number") {
-          lua.lua_pushinteger(this.L, arg);
+          if (Number.isInteger(arg)) {
+            lua.lua_pushinteger(this.L, arg);
+          } else {
+            lua.lua_pushnumber(this.L, arg);
+          }
         } else if (typeof arg === "boolean") {
           lua.lua_pushboolean(this.L, arg ? 1 : 0);
         } else if (typeof arg === "object" && arg !== null) {
-          lua.lua_createtable(this.L, 0, 0);
-          for (const k in arg) {
-            const v = arg[k];
-            if (typeof v === "string") {
-              lua.lua_pushstring(this.L, fengari.to_luastring(v));
-            } else if (typeof v === "number") {
-              lua.lua_pushinteger(this.L, v);
-            } else {
-              lua.lua_pushnil(this.L);
-            }
-            lua.lua_setfield(this.L, -2, fengari.to_luastring(k));
-          }
+          this.pushTable(arg);
         } else {
           lua.lua_pushnil(this.L);
         }
@@ -362,6 +852,7 @@ class LuaRuntime {
       x: Math.floor(player.x / C.TILE_SIZE),
       y: Math.floor(player.y / C.TILE_SIZE),
       health: player.health,
+      team: player.team || "None",
     });
   }
 
@@ -396,6 +887,36 @@ class LuaRuntime {
       playerId: socketId,
       name: username,
       message: message,
+    });
+  }
+
+  onToolUse(socketId, toolId, targetX, targetY) {
+    const p = this.game.getPlayer(socketId);
+    this.triggerEvent("onToolUse", {
+      playerId: socketId,
+      name: p ? p.username : "unknown",
+      tool: toolId,
+      x: targetX,
+      y: targetY,
+    });
+  }
+
+  onRemoteEventFromClient(socketId, name, data) {
+    const p = this.game.getPlayer(socketId);
+    this.triggerEvent("onRemoteEvent", {
+      playerId: socketId,
+      name: p ? p.username : "unknown",
+      eventName: name,
+      data: data,
+    });
+  }
+
+  onUIEventFromClient(socketId, elementId) {
+    const p = this.game.getPlayer(socketId);
+    this.triggerEvent("onUIEvent", {
+      playerId: socketId,
+      name: p ? p.username : "unknown",
+      elementId: elementId,
     });
   }
 }

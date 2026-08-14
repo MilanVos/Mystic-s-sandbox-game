@@ -36,6 +36,7 @@
 
       <div id="top-bar">
         <div id="player-count">Players: 1</div>
+        <div id="game-name-display"></div>
         <div id="time-display">Day</div>
         <div id="mode-display">Survival</div>
         <div id="fps-display">FPS: 60</div>
@@ -66,6 +67,17 @@
 
     <div id="crosshair"></div>
 
+    <div id="lua-ui-layer"></div>
+
+    <div id="toolbar" style="display:none;">
+      <div id="toolbar-slots"></div>
+    </div>
+
+    <div id="team-panel" style="display:none;">
+      <h3>Teams</h3>
+      <div id="team-list"></div>
+    </div>
+
     <div id="loading-screen">
       <div class="loader"></div>
       <p>Loading world...</p>
@@ -80,6 +92,7 @@
   <script src="/js/inventory.js"></script>
   <script src="/js/chat.js"></script>
   <script src="/js/lua-editor.js"></script>
+  <script src="/js/game-browser.js"></script>
   <script src="/js/network.js"></script>
   <script src="/js/game.js"></script>
 </body>

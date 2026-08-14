@@ -5,6 +5,7 @@ const { Server } = require("socket.io");
 const C = require("../shared/constants");
 const GameServer = require("./game");
 const LuaRuntime = require("./lua");
+const GameManager = require("./games");
 
 const app = express();
 const server = http.createServer(app);
@@ -15,6 +16,7 @@ const io = new Server(server, {
 const PORT = process.env.PORT || 3000;
 const game = new GameServer();
 const lua = new LuaRuntime(game, io);
+const gameManager = new GameManager();
 
 app.use(express.static(path.join(__dirname, "..", "public")));
 app.use("/shared", express.static(path.join(__dirname, "..", "shared")));
@@ -59,6 +61,7 @@ io.on("connection", (socket) => {
     });
 
     io.emit(C.SOCKET_EVENTS.PLAYER_LIST, game.getPlayerList());
+    io.emit(C.SOCKET_EVENTS.TEAM_UPDATE, game.getTeamsData());
 
     lua.onPlayerJoin(player);
   });
@@ -117,6 +120,76 @@ io.on("connection", (socket) => {
     socket.emit(C.SOCKET_EVENTS.LUA_RESULT, result);
   });
 
+  socket.on(C.SOCKET_EVENTS.TOOL_EQUIP, (data) => {
+    const player = game.getPlayer(socket.id);
+    if (player && player.tools && player.tools.includes(data.toolId)) {
+      player.equippedTool = data.toolId;
+    }
+  });
+
+  socket.on(C.SOCKET_EVENTS.TOOL_USE, (data) => {
+    const player = game.getPlayer(socket.id);
+    if (!player) return;
+    const toolId = player.equippedTool || data.toolId;
+    if (!toolId) return;
+    lua.onToolUse(socket.id, toolId, data.x, data.y);
+  });
+
+  socket.on(C.SOCKET_EVENTS.UI_EVENT, (data) => {
+    lua.onUIEventFromClient(socket.id, data.elementId);
+  });
+
+  socket.on(C.SOCKET_EVENTS.REMOTE_EVENT, (data) => {
+    if (!data || !data.name) return;
+    if (data.fromServer) return;
+    lua.onRemoteEventFromClient(socket.id, data.name, data.data || "");
+  });
+
+  socket.on(C.SOCKET_EVENTS.GAME_LIST, () => {
+    socket.emit(C.SOCKET_EVENTS.GAME_LIST, gameManager.listGames());
+  });
+
+  socket.on(C.SOCKET_EVENTS.GAME_CREATE, (data) => {
+    if (!data || !data.name) return;
+    const player = game.getPlayer(socket.id);
+    const createdBy = player ? player.username : "Unknown";
+    const newGame = gameManager.createGame(data.name, data.description, data.luaScript, createdBy);
+    io.emit(C.SOCKET_EVENTS.GAME_LIST, gameManager.listGames());
+    socket.emit(C.SOCKET_EVENTS.GAME_CREATE, { success: true, game: newGame });
+  });
+
+  socket.on(C.SOCKET_EVENTS.GAME_JOIN, (data) => {
+    if (!data || !data.gameId) return;
+    const gameData = gameManager.getGame(data.gameId);
+    if (!gameData) {
+      socket.emit(C.SOCKET_EVENTS.ERROR, "Game not found");
+      return;
+    }
+    gameManager.joinGame(socket.id, data.gameId);
+
+    if (gameData.luaScript && gameData.luaScript.trim().length > 0) {
+      console.log(`[Server] Running game script for ${gameData.name} (${gameData.luaScript.length} chars)`);
+      const result = lua.runScript(gameData.luaScript);
+      socket.emit(C.SOCKET_EVENTS.LUA_RESULT, result);
+    }
+
+    io.emit(C.SOCKET_EVENTS.GAME_LIST, gameManager.listGames());
+    socket.emit(C.SOCKET_EVENTS.GAME_JOIN, {
+      success: true,
+      game: {
+        id: gameData.id,
+        name: gameData.name,
+        description: gameData.description,
+      },
+    });
+  });
+
+  socket.on(C.SOCKET_EVENTS.GAME_LEAVE, () => {
+    gameManager.leaveGame(socket.id);
+    io.emit(C.SOCKET_EVENTS.GAME_LIST, gameManager.listGames());
+    socket.emit(C.SOCKET_EVENTS.GAME_LEAVE, { success: true });
+  });
+
   socket.on("respawn", () => {
     const spawnData = game.respawnPlayer(socket.id);
     if (spawnData) {
@@ -148,8 +221,10 @@ io.on("connection", (socket) => {
     const player = game.getPlayer(socket.id);
     connectedSockets.delete(socket.id);
     game.removePlayer(socket.id);
+    gameManager.removePlayer(socket.id);
     io.emit(C.SOCKET_EVENTS.PLAYER_LEFT, { id: socket.id });
     io.emit(C.SOCKET_EVENTS.PLAYER_LIST, game.getPlayerList());
+    io.emit(C.SOCKET_EVENTS.GAME_LIST, gameManager.listGames());
     if (player) {
       lua.onPlayerLeave(socket.id, player.username);
     }

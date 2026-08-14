@@ -7,6 +7,10 @@ class GameServer {
     this.players = new Map();
     this.startTime = Date.now();
     this.customSpawn = null;
+    this.teams = new Map();
+    for (const t of C.DEFAULT_TEAMS) {
+      this.teams.set(t.name, { name: t.name, color: t.color, players: new Set() });
+    }
     this.saveInterval = setInterval(() => {
       this.world.saveToFile();
     }, 30000);
@@ -46,6 +50,10 @@ class GameServer {
       lastMoveTime: Date.now(),
       creativeMode: false,
       flying: false,
+      team: null,
+      tools: [],
+      equippedTool: null,
+      customSpeed: null,
     };
 
     this.players.set(socket.id, player);
@@ -53,6 +61,11 @@ class GameServer {
   }
 
   removePlayer(socketId) {
+    const player = this.players.get(socketId);
+    if (player && player.team) {
+      const team = this.teams.get(player.team);
+      if (team) team.players.delete(socketId);
+    }
     this.players.delete(socketId);
   }
 
@@ -68,9 +81,48 @@ class GameServer {
         username: p.username,
         color: p.color,
         health: p.health,
+        team: p.team || "None",
       });
     });
     return list;
+  }
+
+  createTeam(name, color) {
+    if (!this.teams.has(name)) {
+      this.teams.set(name, { name, color, players: new Set() });
+    }
+  }
+
+  setPlayerTeam(socketId, teamName) {
+    const player = this.players.get(socketId);
+    if (!player) return;
+    if (player.team) {
+      const oldTeam = this.teams.get(player.team);
+      if (oldTeam) oldTeam.players.delete(socketId);
+    }
+    if (this.teams.has(teamName)) {
+      player.team = teamName;
+      this.teams.get(teamName).players.add(socketId);
+    }
+  }
+
+  getPlayersInTeam(teamName) {
+    const team = this.teams.get(teamName);
+    if (!team) return [];
+    const result = [];
+    for (const id of team.players) {
+      const p = this.players.get(id);
+      if (p) result.push(p);
+    }
+    return result;
+  }
+
+  getTeamsData() {
+    const result = [];
+    this.teams.forEach((t) => {
+      result.push({ name: t.name, color: t.color, playerCount: t.players.size });
+    });
+    return result;
   }
 
   getWorldData() {

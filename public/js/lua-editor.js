@@ -82,6 +82,7 @@ end)
       <div id="lua-panel-help" class="lua-panel" style="display:none;">
         <div class="lua-help-content">
           <h3>API Reference</h3>
+
           <h4>World Functions</h4>
           <pre>game.placeBlock(x, y, blockId)  -- Place a block</pre>
           <pre>game.breakBlock(x, y)           -- Break a block</pre>
@@ -90,21 +91,63 @@ end)
           <pre>game.getWorldSize()             -- Returns {width, height}</pre>
           <pre>game.setSpawn(x, y)             -- Set the spawn point</pre>
           <pre>game.setTime(time)              -- Set time (0.0-1.0)</pre>
+
           <h4>Player Functions</h4>
           <pre>game.getPlayers()               -- Get list of all players</pre>
+          <pre>game.getPlayerInfo(playerId)    -- Get {id, name, health, team}</pre>
           <pre>game.sendMessage(playerId, msg) -- Send message to a player</pre>
           <pre>game.broadcast(msg)             -- Send message to all players</pre>
+          <pre>player.teleport(playerId, x, y) -- Teleport player to position</pre>
+          <pre>player.setSpeed(playerId, speed)-- Set player movement speed</pre>
+          <pre>player.setHealth(playerId, hp)  -- Set player health</pre>
+          <pre>player.getInfo(playerId)        -- Get player info table</pre>
+
+          <h4>UI Functions (Roblox-like)</h4>
+          <pre>ui.createButton(playerId, text, x, y, w, h, color) -- Create a button</pre>
+          <pre>ui.createLabel(playerId, text, x, y, w, h, color, fontSize) -- Create text</pre>
+          <pre>ui.createFrame(playerId, x, y, w, h, color) -- Create a frame</pre>
+          <pre>ui.update(playerId, elementId, props) -- Update UI element</pre>
+          <pre>ui.remove(playerId, elementId)  -- Remove UI element</pre>
+
+          <h4>Tools System</h4>
+          <pre>tools.give(playerId, toolId)    -- Give a tool to player</pre>
+          <pre>tools.remove(playerId, toolId)  -- Remove a tool from player</pre>
+          <pre>tools.equipped(playerId)        -- Get equipped tool ID</pre>
+          <pre>tools.onUse(function(data) ... end) -- Tool use callback</pre>
+          <pre>TOOL.PICKAXE TOOL.SWORD TOOL.BOW TOOL.BLOCK_PLACER TOOL.WAND</pre>
+
+          <h4>DataStore (Persistent Storage)</h4>
+          <pre>datastore.get(playerId, key)    -- Get stored value (or nil)</pre>
+          <pre>datastore.set(playerId, key, value) -- Store a value permanently</pre>
+
+          <h4>Teams System</h4>
+          <pre>teams.create(name, color)       -- Create a new team</pre>
+          <pre>teams.setPlayer(playerId, name) -- Assign player to team</pre>
+          <pre>teams.getPlayers(name)          -- Get list of players in team</pre>
+          <pre>teams.list()                    -- Get all teams info</pre>
+
+          <h4>RemoteEvents (Client-Server)</h4>
+          <pre>remote.register(name)           -- Register a remote event</pre>
+          <pre>remote.fire(name, data)         -- Fire event to all clients</pre>
+          <pre>remote.fireTo(playerId, name, data) -- Fire event to one client</pre>
+          <pre>remote.on(name, function(data) ... end) -- Listen for client events</pre>
+          <pre>-- Client side: game.fireRemoteEvent(name, data)</pre>
+          <pre>-- Client side: game.onRemoteEvent(name, function(data) ... end)</pre>
+
           <h4>Events</h4>
           <pre>game.onPlayerJoin(function(player) ... end)</pre>
           <pre>game.onPlayerLeave(function(player) ... end)</pre>
           <pre>game.onBlockBreak(function(data) ... end)</pre>
           <pre>game.onBlockPlace(function(data) ... end)</pre>
           <pre>game.onChat(function(data) ... end)</pre>
+          <pre>game.onUIEvent(function(data) ... end)</pre>
+
           <h4>Block Constants</h4>
           <pre>BLOCK.AIR BLOCK.GRASS BLOCK.DIRT BLOCK.STONE BLOCK.WOOD
 BLOCK.LEAVES BLOCK.SAND BLOCK.WATER BLOCK.COAL BLOCK.IRON
 BLOCK.GOLD BLOCK.DIAMOND BLOCK.BEDROCK BLOCK.PLANKS BLOCK.GLASS
 BLOCK.BRICK BLOCK.TORCH BLOCK.FLOWER BLOCK.SNOW BLOCK.ICE</pre>
+
           <h4>Utility</h4>
           <pre>print(...)  -- Print to output panel and server console</pre>
         </div>

@@ -87,6 +87,23 @@
   const CAMERA_ZOOM = 0.75;
   const CAMERA_LOOKAHEAD = 120;
 
+  const TOOLS = {
+    PICKAXE: { id: "pickaxe", name: "Pickaxe", icon: "⛏", cooldown: 200, reach: 6 },
+    SWORD: { id: "sword", name: "Sword", icon: "⚔", cooldown: 400, reach: 3, damage: 20 },
+    BOW: { id: "bow", name: "Bow", icon: "🏹", cooldown: 600, reach: 20 },
+    BLOCK_PLACER: { id: "block_placer", name: "Block Placer", icon: "🧱", cooldown: 150, reach: 5 },
+    WAND: { id: "wand", name: "Magic Wand", icon: "✨", cooldown: 300, reach: 10 },
+  };
+
+  const TOOL_LIST = Object.values(TOOLS).map(t => t.id);
+
+  const DEFAULT_TEAMS = [
+    { name: "Red", color: "#e74c3c" },
+    { name: "Blue", color: "#3498db" },
+    { name: "Green", color: "#2ecc71" },
+    { name: "Yellow", color: "#f39c12" },
+  ];
+
   const SOCKET_EVENTS = {
     JOIN: "join",
     JOIN_ACCEPTED: "join_accepted",
@@ -108,6 +125,30 @@
     LUA_RESULT: "lua_result",
     LUA_ERROR: "lua_error",
     LUA_SCRIPT: "lua_script",
+    UI_CREATE: "ui_create",
+    UI_UPDATE: "ui_update",
+    UI_REMOVE: "ui_remove",
+    UI_EVENT: "ui_event",
+    TOOL_GIVE: "tool_give",
+    TOOL_REMOVE: "tool_remove",
+    TOOL_EQUIP: "tool_equip",
+    TOOL_USE: "tool_use",
+    TOOL_LIST: "tool_list",
+    DATASTORE_GET: "datastore_get",
+    DATASTORE_SET: "datastore_set",
+    DATASTORE_RESULT: "datastore_result",
+    TEAM_SET: "team_set",
+    TEAM_LIST: "team_list",
+    TEAM_UPDATE: "team_update",
+    REMOTE_EVENT: "remote_event",
+    REMOTE_EVENT_REGISTER: "remote_event_register",
+    GAME_LIST: "game_list",
+    GAME_CREATE: "game_create",
+    GAME_JOIN: "game_join",
+    GAME_LEAVE: "game_leave",
+    PLAYER_TELEPORT: "player_teleport",
+    PLAYER_SPEED: "player_speed",
+    PLAYER_HEALTH_SET: "player_health_set",
   };
 
   return {
@@ -130,6 +171,9 @@
     HOTBAR_BLOCKS,
     CRAFTING_RECIPES,
     DAY_NIGHT_DURATION,
+    TOOLS,
+    TOOL_LIST,
+    DEFAULT_TEAMS,
     SOCKET_EVENTS,
   };
 });

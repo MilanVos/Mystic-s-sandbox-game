@@ -1,4 +1,6 @@
 node_modules/
 world-save.json
+datastore.json
+games.json
 *.log
 .DS_Store

@@ -22,13 +22,14 @@ class Player {
     this.fallStartY = null;
     this.creativeMode = false;
     this.flying = false;
+    this.customSpeed = null;
   }
 
   update(world, input, dt) {
     if (!this.isLocal) return;
 
     const moveDir = input.getMoveDirection();
-    const speed = this.flying ? Constants.FLY_SPEED : Constants.MOVE_SPEED;
+    const speed = this.flying ? Constants.FLY_SPEED : (this.customSpeed || Constants.MOVE_SPEED);
     const targetVx = moveDir * speed;
 
     if (moveDir !== 0) {
