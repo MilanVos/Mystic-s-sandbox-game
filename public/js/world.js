@@ -48,7 +48,7 @@ class ClientWorld {
     return data && data.solid;
   }
 
-  render(ctx, cameraX, cameraY, canvasWidth, canvasHeight, timeOfDay) {
+  render(ctx, cameraX, cameraY, canvasWidth, canvasHeight) {
     if (!this.initialized) return;
 
     const startCol = Math.max(0, Math.floor(cameraX / Constants.TILE_SIZE));
@@ -79,8 +79,6 @@ class ClientWorld {
         }
       }
     }
-
-    this.renderWaterSurface(ctx, cameraX, cameraY, startCol, endCol, startRow, endRow);
   }
 
   drawBlockDetail(ctx, tileId, x, y, size, tileX, tileY) {
@@ -249,23 +247,6 @@ class ClientWorld {
         ctx.fillRect(x + 4, y + 4, 8, 3);
         ctx.fillRect(x + 18, y + 16, 6, 2);
         break;
-    }
-  }
-
-  renderWaterSurface(ctx, cameraX, cameraY, startCol, endCol, startRow, endRow) {
-    const time = Date.now() * 0.002;
-    ctx.fillStyle = "rgba(100, 170, 255, 0.15)";
-    for (let x = startCol; x <= endCol; x++) {
-      for (let y = startRow; y <= endRow; y++) {
-        if (this.tiles[x][y] === Constants.BLOCK.WATER) {
-          if (y > 0 && this.tiles[x][y - 1] === Constants.BLOCK.AIR) {
-            const screenX = Math.floor(x * Constants.TILE_SIZE - cameraX);
-            const screenY = Math.floor(y * Constants.TILE_SIZE - cameraY);
-            const wave = Math.sin(time + x * 0.5) * 2;
-            ctx.fillRect(screenX, screenY - 1 + wave, Constants.TILE_SIZE, 3);
-          }
-        }
-      }
     }
   }
 

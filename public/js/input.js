@@ -6,11 +6,7 @@ class InputManager {
     this.mouseDown = { left: false, right: false };
     this.disabled = true;
     this.chatOpen = false;
-    this.craftingOpen = false;
     this.luaEditorOpen = false;
-    this.hotbarIndex = 0;
-    this.onHotbarSelect = null;
-    this.onToggleCrafting = null;
     this.onToggleChat = null;
     this.onToggleLuaEditor = null;
     this.onToggleCreative = null;
@@ -21,7 +17,6 @@ class InputManager {
     canvas.addEventListener("mousedown", (e) => this.handleMouseDown(e));
     canvas.addEventListener("mouseup", (e) => this.handleMouseUp(e));
     canvas.addEventListener("contextmenu", (e) => e.preventDefault());
-    canvas.addEventListener("wheel", (e) => this.handleWheel(e));
   }
 
   handleKeyDown(e) {
@@ -43,27 +38,12 @@ class InputManager {
       return;
     }
 
-    if (this.craftingOpen) {
-      if (e.key === "Escape" || e.key === "e" || e.key === "E") {
-        this.craftingOpen = false;
-        if (this.onToggleCrafting) this.onToggleCrafting(false);
-      }
-      return;
-    }
-
     const key = e.key.toLowerCase();
 
     if (key === "t") {
       e.preventDefault();
       this.chatOpen = true;
       if (this.onToggleChat) this.onToggleChat(true);
-      return;
-    }
-
-    if (key === "e") {
-      e.preventDefault();
-      this.craftingOpen = true;
-      if (this.onToggleCrafting) this.onToggleCrafting(true);
       return;
     }
 
@@ -82,13 +62,6 @@ class InputManager {
 
     if (e.code === "Space") e.preventDefault();
 
-    if (key >= "1" && key <= "9") {
-      const idx = parseInt(key) - 1;
-      this.hotbarIndex = idx;
-      if (this.onHotbarSelect) this.onHotbarSelect(idx);
-      return;
-    }
-
     this.keys[key] = true;
     this.keys[e.code] = true;
   }
@@ -106,7 +79,7 @@ class InputManager {
   }
 
   handleMouseDown(e) {
-    if (this.disabled || this.chatOpen || this.craftingOpen || this.luaEditorOpen) return;
+    if (this.disabled || this.chatOpen || this.luaEditorOpen) return;
     e.preventDefault();
     if (e.button === 0) this.mouseDown.left = true;
     if (e.button === 2) this.mouseDown.right = true;
@@ -115,16 +88,6 @@ class InputManager {
   handleMouseUp(e) {
     if (e.button === 0) this.mouseDown.left = false;
     if (e.button === 2) this.mouseDown.right = false;
-  }
-
-  handleWheel(e) {
-    if (this.disabled || this.chatOpen || this.craftingOpen || this.luaEditorOpen) return;
-    e.preventDefault();
-    const dir = e.deltaY > 0 ? 1 : -1;
-    let idx = (this.hotbarIndex + dir) % 9;
-    if (idx < 0) idx = 8;
-    this.hotbarIndex = idx;
-    if (this.onHotbarSelect) this.onHotbarSelect(idx);
   }
 
   isKeyDown(key) {

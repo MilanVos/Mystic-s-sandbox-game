@@ -15,24 +15,17 @@ const DEFAULT_GAMES = [
   },
   {
     id: "survival",
-    name: "Survival Challenge",
-    description: "Mine resources and survive the night!",
-    luaScript: `-- Survival Challenge
-game.broadcast("Survival Challenge started!")
+    name: "Survival Arena",
+    description: "Fight with tools and be the last one standing!",
+    luaScript: `-- Survival Arena
+game.broadcast("Survival Arena started!")
 
--- Give everyone a pickaxe on join
+-- Give everyone tools on join
 game.onPlayerJoin(function(player)
-  game.sendMessage(player.id, "Welcome to Survival Challenge!")
-  game.sendMessage(player.id, "Mine blocks and survive!")
-  tools.give(player.id, TOOL.PICKAXE)
+  game.sendMessage(player.id, "Welcome to Survival Arena!")
+  game.sendMessage(player.id, "Use your tools to fight!")
   tools.give(player.id, TOOL.SWORD)
-end)
-
--- Track block breaks for score
-game.onBlockBreak(function(data)
-  datastore.set(data.id, "blocksBroken", (datastore.get(data.id, "blocksBroken") or 0) + 1)
-  local score = datastore.get(data.id, "blocksBroken")
-  game.sendMessage(data.id, "Blocks broken: " .. score)
+  tools.give(player.id, TOOL.BOW)
 end)
 `,
     createdBy: "System",
@@ -75,7 +68,7 @@ end)
   {
     id: "buildbattle",
     name: "Build Battle",
-    description: "Build the best creation with limited blocks!",
+    description: "Build the most creative structure with tools!",
     luaScript: `-- Build Battle
 game.broadcast("Build Battle started! Build something amazing!")
 

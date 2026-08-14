@@ -5,7 +5,6 @@ class GameServer {
   constructor() {
     this.world = World.loadFromFile() || new World();
     this.players = new Map();
-    this.startTime = Date.now();
     this.customSpawn = null;
     this.teams = new Map();
     for (const t of C.DEFAULT_TEAMS) {
@@ -129,74 +128,6 @@ class GameServer {
     return this.world.serialize();
   }
 
-  getTimeOfDay() {
-    const elapsed = (Date.now() - this.startTime) % C.DAY_NIGHT_DURATION;
-    return elapsed / C.DAY_NIGHT_DURATION;
-  }
-
-  handleBlockBreak(socketId, x, y) {
-    const player = this.players.get(socketId);
-    if (!player) return null;
-
-    const playerTileX = Math.floor((player.x + C.PLAYER_WIDTH / 2) / C.TILE_SIZE);
-    const playerTileY = Math.floor((player.y + C.PLAYER_HEIGHT / 2) / C.TILE_SIZE);
-    const dist = Math.sqrt((x - playerTileX) ** 2 + (y - playerTileY) ** 2);
-
-    const reach = player.creativeMode ? C.REACH_DISTANCE * 2 : C.REACH_DISTANCE;
-    if (dist > reach) return null;
-
-    const tile = this.world.getTile(x, y);
-    if (tile === C.BLOCK.AIR) return null;
-    const data = C.BLOCK_DATA[tile];
-    if (!data || !data.mineable) return null;
-
-    if (this.world.setTile(x, y, C.BLOCK.AIR)) {
-      return { x, y, tileId: C.BLOCK.AIR, brokenBlock: tile, playerId: socketId };
-    }
-    return null;
-  }
-
-  handleBlockPlace(socketId, x, y, blockId) {
-    const player = this.players.get(socketId);
-    if (!player) return null;
-
-    const playerTileX = Math.floor((player.x + C.PLAYER_WIDTH / 2) / C.TILE_SIZE);
-    const playerTileY = Math.floor((player.y + C.PLAYER_HEIGHT / 2) / C.TILE_SIZE);
-    const dist = Math.sqrt((x - playerTileX) ** 2 + (y - playerTileY) ** 2);
-
-    const reach = player.creativeMode ? C.REACH_DISTANCE * 2 : C.REACH_DISTANCE;
-    if (dist > reach) return null;
-
-    if (x < 0 || x >= this.world.width || y < 0 || y >= this.world.height) return null;
-
-    const existing = this.world.getTile(x, y);
-    if (existing !== C.BLOCK.AIR) return null;
-
-    const data = C.BLOCK_DATA[blockId];
-    if (!data) return null;
-
-    if (!player.creativeMode) {
-      const px = player.x;
-      const py = player.y;
-      const blockLeft = x * C.TILE_SIZE;
-      const blockTop = y * C.TILE_SIZE;
-      const blockRight = blockLeft + C.TILE_SIZE;
-      const blockBottom = blockTop + C.TILE_SIZE;
-      const playerRight = px + C.PLAYER_WIDTH;
-      const playerBottom = py + C.PLAYER_HEIGHT;
-
-      if (data.solid) {
-        const overlap = !(playerRight <= blockLeft || px >= blockRight || playerBottom <= blockTop || py >= blockBottom);
-        if (overlap) return null;
-      }
-    }
-
-    if (this.world.setTile(x, y, blockId)) {
-      return { x, y, tileId: blockId, playerId: socketId };
-    }
-    return null;
-  }
-
   handlePlayerMove(socketId, data) {
     const player = this.players.get(socketId);
     if (!player) return;
@@ -208,10 +139,6 @@ class GameServer {
     player.facing = data.facing;
     player.onGround = data.onGround;
     player.lastMoveTime = Date.now();
-
-    if (data.health !== undefined) {
-      player.health = Math.max(0, Math.min(C.PLAYER_MAX_HEALTH, data.health));
-    }
 
     if (data.flying !== undefined) {
       player.flying = data.flying;
@@ -225,17 +152,8 @@ class GameServer {
       vy: player.vy,
       facing: player.facing,
       onGround: player.onGround,
-      health: player.health,
       flying: player.flying,
     };
-  }
-
-  handleDamage(socketId, damage) {
-    const player = this.players.get(socketId);
-    if (!player) return null;
-    if (player.creativeMode) return null;
-    player.health = Math.max(0, player.health - damage);
-    return { id: player.id, health: player.health };
   }
 
   respawnPlayer(socketId) {
@@ -262,13 +180,11 @@ class GameServer {
     player.y = spawnY * C.TILE_SIZE;
     player.vx = 0;
     player.vy = 0;
-    player.health = C.PLAYER_MAX_HEALTH;
     return {
       x: player.x,
       y: player.y,
       vx: 0,
       vy: 0,
-      health: player.health,
     };
   }
 

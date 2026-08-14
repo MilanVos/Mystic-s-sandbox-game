@@ -9,17 +9,10 @@ class Player {
     this.vy = 0;
     this.facing = 1;
     this.onGround = false;
-    this.health = Constants.PLAYER_MAX_HEALTH;
     this.isLocal = false;
     this.lastNetworkUpdate = 0;
     this.walkFrame = 0;
     this.walkTimer = 0;
-    this.lastBreakTime = 0;
-    this.breakingTile = null;
-    this.breakingProgress = 0;
-    this.drowningTimer = 0;
-    this.inWater = false;
-    this.fallStartY = null;
     this.creativeMode = false;
     this.flying = false;
     this.customSpeed = null;
@@ -46,10 +39,6 @@ class Player {
       this.walkFrame = 0;
     }
 
-    const headTileX = Math.floor((this.x + Constants.PLAYER_WIDTH / 2) / Constants.TILE_SIZE);
-    const headTileY = Math.floor((this.y + 4) / Constants.TILE_SIZE);
-    this.inWater = world.getTile(headTileX, headTileY) === Constants.BLOCK.WATER;
-
     if (this.flying) {
       this.vy = 0;
       if (input.isJumping()) {
@@ -60,19 +49,6 @@ class Player {
       this.moveAxis(world, "x", this.vx);
       this.moveAxis(world, "y", this.vy);
       this.onGround = false;
-    } else if (this.inWater) {
-      this.vy += Constants.GRAVITY * 0.3;
-      if (this.vy > 4) this.vy = 4;
-      if (input.isJumping()) {
-        this.vy = -4;
-      }
-      this.vx *= 0.7;
-
-      const wasOnGround = this.onGround;
-      this.moveAxis(world, "x", this.vx);
-      this.onGround = false;
-      this.moveAxis(world, "y", this.vy);
-      this.checkGround(world);
     } else {
       this.vy += Constants.GRAVITY;
       if (this.vy > Constants.MAX_FALL_SPEED) this.vy = Constants.MAX_FALL_SPEED;
@@ -81,39 +57,17 @@ class Player {
         this.onGround = false;
       }
 
-      const wasOnGround = this.onGround;
       this.moveAxis(world, "x", this.vx);
       this.onGround = false;
       this.moveAxis(world, "y", this.vy);
       this.checkGround(world);
-
-      if (!wasOnGround && this.onGround && this.fallStartY !== null) {
-        const fallDist = this.y / Constants.TILE_SIZE - this.fallStartY;
-        if (fallDist > 6 && !this.creativeMode) {
-          const damage = Math.floor((fallDist - 6) * 5);
-          if (damage > 0 && this.onDamage) {
-            this.onDamage(damage);
-          }
-        }
-        this.fallStartY = null;
-      }
-
-      if (!this.onGround && this.fallStartY === null && this.vy > 0) {
-        this.fallStartY = this.y / Constants.TILE_SIZE;
-      }
     }
 
     if (this.y > Constants.WORLD_HEIGHT * Constants.TILE_SIZE) {
-      if (this.onDamage) this.onDamage(999);
-    }
-
-    if (this.inWater && !this.creativeMode) {
-      this.drowningTimer += dt;
-      if (this.drowningTimer > 10 && Math.floor(this.drowningTimer) % 2 === 0) {
-        if (this.onDamage) this.onDamage(2);
-      }
-    } else {
-      this.drowningTimer = 0;
+      this.x = Math.floor(Constants.WORLD_WIDTH / 2) * Constants.TILE_SIZE;
+      this.y = 0;
+      this.vx = 0;
+      this.vy = 0;
     }
 
     const now = Date.now();
@@ -127,7 +81,6 @@ class Player {
           vy: this.vy,
           facing: this.facing,
           onGround: this.onGround,
-          health: this.health,
           flying: this.flying,
         });
       }
@@ -155,7 +108,6 @@ class Player {
     if (this.creativeMode) {
       this.flying = true;
       this.vy = 0;
-      this.health = Constants.PLAYER_MAX_HEALTH;
     } else {
       this.flying = false;
     }
@@ -233,11 +185,6 @@ class Player {
       ctx.textAlign = "left";
     }
 
-    if (this.inWater) {
-      ctx.fillStyle = "rgba(58, 123, 213, 0.3)";
-      ctx.fillRect(screenX - 2, screenY - 2, pw + 4, ph + 4);
-    }
-
     if (this.flying) {
       ctx.fillStyle = "rgba(78, 228, 236, 0.2)";
       ctx.beginPath();
@@ -272,12 +219,6 @@ class Player {
       ctx.fillRect(screenX, screenY + 16, 4, 12);
     }
 
-    if (this.inWater) {
-      const bobble = Math.sin(Date.now() * 0.005) * 2;
-      ctx.fillStyle = "rgba(120, 180, 255, 0.4)";
-      ctx.fillRect(screenX - 4, screenY - 4 + bobble, pw + 8, 3);
-    }
-
     if (this.flying && isLocalPlayer) {
       ctx.fillStyle = "#4ee4ec";
       ctx.font = "bold 9px Segoe UI, sans-serif";
@@ -285,22 +226,6 @@ class Player {
       ctx.fillText("FLYING", screenX + pw / 2, screenY - 22);
       ctx.textAlign = "left";
     }
-  }
-
-  renderHealth(ctx, cameraX, cameraY) {
-    if (this.health >= Constants.PLAYER_MAX_HEALTH) return;
-
-    const screenX = Math.floor(this.x - cameraX);
-    const screenY = Math.floor(this.y - cameraY);
-    const pw = Constants.PLAYER_WIDTH;
-    const barWidth = pw + 6;
-    const barX = screenX - 3;
-    const barY = screenY - 10;
-
-    ctx.fillStyle = "rgba(0,0,0,0.6)";
-    ctx.fillRect(barX, barY, barWidth, 5);
-    ctx.fillStyle = this.health > 30 ? "#2ecc71" : "#e74c3c";
-    ctx.fillRect(barX + 1, barY + 1, (barWidth - 2) * (this.health / Constants.PLAYER_MAX_HEALTH), 3);
   }
 }
 
@@ -331,10 +256,6 @@ class RemotePlayer extends Player {
     } else {
       this.walkFrame = 0;
     }
-
-    const headTileX = Math.floor((this.x + Constants.PLAYER_WIDTH / 2) / Constants.TILE_SIZE);
-    const headTileY = Math.floor((this.y + 4) / Constants.TILE_SIZE);
-    this.inWater = world.getTile(headTileX, headTileY) === Constants.BLOCK.WATER;
   }
 
   updateFromNetwork(data) {
@@ -344,7 +265,6 @@ class RemotePlayer extends Player {
     this.targetVy = data.vy || 0;
     if (data.facing !== undefined) this.facing = data.facing;
     if (data.onGround !== undefined) this.onGround = data.onGround;
-    if (data.health !== undefined) this.health = data.health;
     if (data.flying !== undefined) this.flying = data.flying;
     this.lastUpdateTime = Date.now();
   }

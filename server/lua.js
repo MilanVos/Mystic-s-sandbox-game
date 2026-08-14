@@ -183,14 +183,6 @@ class LuaRuntime {
     this.setGlobal("fillArea");
 
     this.pushJSFunction((L) => {
-      const time = self.getArgNum(1);
-      self.game.startTime = Date.now() - (time * C.DAY_NIGHT_DURATION);
-      self.io.emit("time_update", time);
-      return 0;
-    });
-    this.setGlobal("setTime");
-
-    this.pushJSFunction((L) => {
       const x = self.getArgInt(1);
       const y = self.getArgInt(2);
       self.game.customSpawn = { x: x * C.TILE_SIZE, y: y * C.TILE_SIZE };
@@ -772,7 +764,6 @@ class LuaRuntime {
       game.sendMessage = sendMessage
       game.broadcast = broadcast
       game.fillArea = fillArea
-      game.setTime = setTime
       game.setSpawn = setSpawn
       game.teleportPlayer = teleportPlayer
       game.setPlayerSpeed = setPlayerSpeed

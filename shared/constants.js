@@ -15,7 +15,6 @@
   const PLAYER_WIDTH = 24;
   const PLAYER_HEIGHT = 44;
   const PLAYER_MAX_HEALTH = 100;
-  const REACH_DISTANCE = 5;
 
   const BLOCK = {
     AIR: 0,
@@ -63,26 +62,6 @@
     19: { name: "ice",      solid: true,  transparent: true,  color: "#a5d8f3", mineable: true, hardness: 1 },
   };
 
-  const HOTBAR_BLOCKS = [
-    BLOCK.GRASS,
-    BLOCK.DIRT,
-    BLOCK.STONE,
-    BLOCK.WOOD,
-    BLOCK.PLANKS,
-    BLOCK.SAND,
-    BLOCK.GLASS,
-    BLOCK.BRICK,
-    BLOCK.TORCH,
-  ];
-
-  const CRAFTING_RECIPES = [
-    { output: { id: BLOCK.PLANKS, count: 4 }, inputs: [{ id: BLOCK.WOOD, count: 1 }] },
-    { output: { id: BLOCK.BRICK, count: 2 }, inputs: [{ id: BLOCK.STONE, count: 2 }] },
-    { output: { id: BLOCK.GLASS, count: 1 }, inputs: [{ id: BLOCK.SAND, count: 1 }] },
-    { output: { id: BLOCK.TORCH, count: 4 }, inputs: [{ id: BLOCK.WOOD, count: 1 }] },
-  ];
-
-  const DAY_NIGHT_DURATION = 120000;
   const FLY_SPEED = 6;
   const CAMERA_ZOOM = 0.75;
   const CAMERA_LOOKAHEAD = 120;
@@ -162,15 +141,11 @@
     PLAYER_WIDTH,
     PLAYER_HEIGHT,
     PLAYER_MAX_HEALTH,
-    REACH_DISTANCE,
     FLY_SPEED,
     CAMERA_ZOOM,
     CAMERA_LOOKAHEAD,
     BLOCK,
     BLOCK_DATA,
-    HOTBAR_BLOCKS,
-    CRAFTING_RECIPES,
-    DAY_NIGHT_DURATION,
     TOOLS,
     TOOL_LIST,
     DEFAULT_TEAMS,

@@ -3,49 +3,33 @@ class LuaEditor {
     this.network = network;
     this.isOpen = false;
     this.defaultCode = `-- Welcome to the Lua Script Editor!
--- You can create your own games and modify the world.
+-- Create your own games with Lua scripting.
 
--- Example: Build a house
-local size = 5
-local px = 200
-local py = 40
-
--- Floor
-game.fillArea(px, py, px + size, py, BLOCK.PLANKS)
-
--- Walls
-for i = 1, size do
-  game.placeBlock(px, py - i, BLOCK.PLANKS)
-  game.placeBlock(px + size, py - i, BLOCK.PLANKS)
-end
-
--- Roof
-game.fillArea(px, py - size - 1, px + size, py - size - 1, BLOCK.WOOD)
-
--- Door
-game.breakBlock(px + 2, py - 1)
-game.breakBlock(px + 2, py - 2)
-
--- Windows
-game.placeBlock(px + 1, py - 2, BLOCK.GLASS)
-game.placeBlock(px + 3, py - 2, BLOCK.GLASS)
-
--- Torch inside
-game.placeBlock(px + 2, py - 3, BLOCK.TORCH)
-
-print("House built!")
-game.broadcast("A house was built by a script!")
-
--- Event: Welcome new players
+-- Example: Welcome players and give them tools
 game.onPlayerJoin(function(player)
   game.sendMessage(player.id, "Welcome " .. player.name .. "!")
   print(player.name .. " joined the game")
+
+  -- Give the player a sword
+  tools.give(player.id, TOOL.SWORD)
+
+  -- Create a welcome UI
+  local btn = ui.createButton(player.id, "Start Game", 300, 200, 160, 40, "#4ee4ec")
+  local lbl = ui.createLabel(player.id, "Click to begin!", 300, 170, 160, 25, "#ffffff", 14)
 end)
 
--- Event: When someone breaks a block
-game.onBlockBreak(function(data)
-  print(data.name .. " broke a block at " .. data.x .. ", " .. data.y)
+-- Handle button click
+game.onUIEvent(function(data)
+  print("UI event from " .. data.id .. " on element " .. data.elementId)
 end)
+
+-- Build a platform
+local px = 200
+local py = 40
+game.fillArea(px, py, px + 10, py, BLOCK.PLANKS)
+
+print("Game script loaded!")
+game.broadcast("A new game has started!")
 `;
 
     this.createUI();
@@ -90,7 +74,6 @@ end)
           <pre>game.fillArea(x1, y1, x2, y2, blockId) -- Fill a rectangular area</pre>
           <pre>game.getWorldSize()             -- Returns {width, height}</pre>
           <pre>game.setSpawn(x, y)             -- Set the spawn point</pre>
-          <pre>game.setTime(time)              -- Set time (0.0-1.0)</pre>
 
           <h4>Player Functions</h4>
           <pre>game.getPlayers()               -- Get list of all players</pre>
@@ -137,10 +120,9 @@ end)
           <h4>Events</h4>
           <pre>game.onPlayerJoin(function(player) ... end)</pre>
           <pre>game.onPlayerLeave(function(player) ... end)</pre>
-          <pre>game.onBlockBreak(function(data) ... end)</pre>
-          <pre>game.onBlockPlace(function(data) ... end)</pre>
           <pre>game.onChat(function(data) ... end)</pre>
           <pre>game.onUIEvent(function(data) ... end)</pre>
+          <pre>game.onToolUse(function(data) ... end)</pre>
 
           <h4>Block Constants</h4>
           <pre>BLOCK.AIR BLOCK.GRASS BLOCK.DIRT BLOCK.STONE BLOCK.WOOD

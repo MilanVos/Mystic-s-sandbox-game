@@ -46,7 +46,6 @@ io.on("connection", (socket) => {
       color: player.color,
       x: player.x,
       y: player.y,
-      health: player.health,
     });
 
     socket.emit(C.SOCKET_EVENTS.WORLD_DATA, game.getWorldData());
@@ -57,7 +56,6 @@ io.on("connection", (socket) => {
       color: player.color,
       x: player.x,
       y: player.y,
-      health: player.health,
     });
 
     io.emit(C.SOCKET_EVENTS.PLAYER_LIST, game.getPlayerList());
@@ -70,22 +68,6 @@ io.on("connection", (socket) => {
     const moveData = game.handlePlayerMove(socket.id, data);
     if (moveData) {
       socket.broadcast.emit(C.SOCKET_EVENTS.PLAYER_MOVE, moveData);
-    }
-  });
-
-  socket.on(C.SOCKET_EVENTS.BLOCK_BREAK, (data) => {
-    const result = game.handleBlockBreak(socket.id, data.x, data.y);
-    if (result) {
-      io.emit(C.SOCKET_EVENTS.BLOCK_CHANGE, { x: result.x, y: result.y, tileId: result.tileId });
-      lua.onBlockBreak(socket.id, result.x, result.y, result.brokenBlock);
-    }
-  });
-
-  socket.on(C.SOCKET_EVENTS.BLOCK_PLACE, (data) => {
-    const result = game.handleBlockPlace(socket.id, data.x, data.y, data.blockId);
-    if (result) {
-      io.emit(C.SOCKET_EVENTS.BLOCK_CHANGE, { x: result.x, y: result.y, tileId: result.tileId });
-      lua.onBlockPlace(socket.id, result.x, result.y, result.tileId);
     }
   });
 
@@ -190,28 +172,6 @@ io.on("connection", (socket) => {
     socket.emit(C.SOCKET_EVENTS.GAME_LEAVE, { success: true });
   });
 
-  socket.on("respawn", () => {
-    const spawnData = game.respawnPlayer(socket.id);
-    if (spawnData) {
-      socket.emit("respawn", spawnData);
-      socket.broadcast.emit(C.SOCKET_EVENTS.PLAYER_MOVE, {
-        id: socket.id,
-        ...spawnData,
-        vx: 0,
-        vy: 0,
-        facing: 1,
-        onGround: false,
-      });
-    }
-  });
-
-  socket.on("damage", (data) => {
-    const result = game.handleDamage(socket.id, data.damage || 0);
-    if (result) {
-      io.emit(C.SOCKET_EVENTS.HEALTH_UPDATE, result);
-    }
-  });
-
   socket.on(C.SOCKET_EVENTS.PING, (cb) => {
     if (typeof cb === "function") cb();
   });
@@ -232,10 +192,6 @@ io.on("connection", (socket) => {
 });
 
 setInterval(() => {
-  io.emit("time_update", game.getTimeOfDay());
-}, 1000);
-
-setInterval(() => {
   const playerData = {};
   game.players.forEach((p) => {
     playerData[p.id] = {
@@ -246,7 +202,6 @@ setInterval(() => {
       vy: p.vy,
       facing: p.facing,
       onGround: p.onGround,
-      health: p.health,
       flying: p.flying || false,
     };
   });

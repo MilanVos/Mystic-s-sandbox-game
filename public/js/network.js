@@ -8,11 +8,8 @@ class NetworkManager {
     this.onPlayerMove = null;
     this.onBlockChange = null;
     this.onChatMessage = null;
-    this.onHealthUpdate = null;
     this.onPlayerList = null;
-    this.onTimeUpdate = null;
     this.onPlayerPositions = null;
-    this.onRespawn = null;
     this.onError = null;
     this.onLuaResult = null;
     this.onUICreate = null;
@@ -79,24 +76,12 @@ class NetworkManager {
       if (this.onChatMessage) this.onChatMessage(data);
     });
 
-    this.socket.on(Constants.SOCKET_EVENTS.HEALTH_UPDATE, (data) => {
-      if (this.onHealthUpdate) this.onHealthUpdate(data);
-    });
-
     this.socket.on(Constants.SOCKET_EVENTS.PLAYER_LIST, (data) => {
       if (this.onPlayerList) this.onPlayerList(data);
     });
 
-    this.socket.on("time_update", (data) => {
-      if (this.onTimeUpdate) this.onTimeUpdate(data);
-    });
-
     this.socket.on("player_positions", (data) => {
       if (this.onPlayerPositions) this.onPlayerPositions(data);
-    });
-
-    this.socket.on("respawn", (data) => {
-      if (this.onRespawn) this.onRespawn(data);
     });
 
     this.socket.on(Constants.SOCKET_EVENTS.ERROR, (msg) => {
@@ -174,29 +159,9 @@ class NetworkManager {
     this.socket.emit(Constants.SOCKET_EVENTS.PLAYER_MOVE, data);
   }
 
-  sendBlockBreak(x, y) {
-    if (!this.socket || !this.connected) return;
-    this.socket.emit(Constants.SOCKET_EVENTS.BLOCK_BREAK, { x, y });
-  }
-
-  sendBlockPlace(x, y, blockId) {
-    if (!this.socket || !this.connected) return;
-    this.socket.emit(Constants.SOCKET_EVENTS.BLOCK_PLACE, { x, y, blockId });
-  }
-
   sendChat(msg) {
     if (!this.socket || !this.connected) return;
     this.socket.emit(Constants.SOCKET_EVENTS.CHAT_MESSAGE, msg);
-  }
-
-  sendDamage(damage) {
-    if (!this.socket || !this.connected) return;
-    this.socket.emit("damage", { damage });
-  }
-
-  requestRespawn() {
-    if (!this.socket || !this.connected) return;
-    this.socket.emit("respawn");
   }
 
   sendCreativeToggle(creative) {

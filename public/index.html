@@ -10,16 +10,15 @@
   <div id="login-screen">
     <div class="login-box">
       <h1>Mystic Sandbox</h1>
-      <p class="subtitle">A 2D multiplayer voxel sandbox with Lua scripting</p>
+      <p class="subtitle">Create, play, and script your own games with Lua</p>
       <input type="text" id="username-input" placeholder="Enter your username..." maxlength="16" autocomplete="off" />
       <button id="play-btn">Play</button>
       <div id="login-error"></div>
       <div class="controls-hint">
         <h3>Controls</h3>
         <div><span class="key">A</span> <span class="key">D</span> Move &nbsp; <span class="key">W</span> / <span class="key">Space</span> Jump</div>
-        <div><span class="key">L-Click</span> Break &nbsp; <span class="key">R-Click</span> Place</div>
-        <div><span class="key">1-9</span> Select block &nbsp; <span class="key">E</span> Crafting</div>
-        <div><span class="key">T</span> Chat &nbsp; <span class="key">F</span> Creative Mode &nbsp; <span class="key">L</span> Lua Editor</div>
+        <div><span class="key">L-Click</span> Use Tool &nbsp; <span class="key">F</span> Creative / Fly</div>
+        <div><span class="key">T</span> Chat &nbsp; <span class="key">L</span> Lua Editor</div>
         <div><span class="key">Shift</span> Fly Down (Creative) &nbsp; <span class="key">Esc</span> Close panels</div>
       </div>
     </div>
@@ -29,26 +28,12 @@
     <canvas id="game-canvas"></canvas>
 
     <div id="hud">
-      <div id="health-bar-container">
-        <div id="health-bar"></div>
-        <span id="health-text">100 / 100</span>
-      </div>
-
       <div id="top-bar">
         <div id="player-count">Players: 1</div>
         <div id="game-name-display"></div>
-        <div id="time-display">Day</div>
-        <div id="mode-display">Survival</div>
+        <div id="mode-display">Play</div>
         <div id="fps-display">FPS: 60</div>
       </div>
-    </div>
-
-    <div id="hotbar"></div>
-
-    <div id="crafting-menu" style="display:none;">
-      <h2>Crafting</h2>
-      <div id="crafting-recipes"></div>
-      <button id="close-crafting">Close</button>
     </div>
 
     <div id="chat-container">
@@ -57,13 +42,6 @@
     </div>
 
     <div id="player-list-panel"></div>
-
-    <div id="respawn-screen" style="display:none;">
-      <div class="respawn-box">
-        <h2>You died!</h2>
-        <button id="respawn-btn">Respawn</button>
-      </div>
-    </div>
 
     <div id="crosshair"></div>
 
@@ -89,7 +67,6 @@
   <script src="/js/input.js"></script>
   <script src="/js/world.js"></script>
   <script src="/js/player.js"></script>
-  <script src="/js/inventory.js"></script>
   <script src="/js/chat.js"></script>
   <script src="/js/lua-editor.js"></script>
   <script src="/js/game-browser.js"></script>
